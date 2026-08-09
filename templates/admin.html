@@ -1,0 +1,601 @@
+{% extends "base.html" %}
+
+{% block title %}{{ panel_label|default('Instructor Panel') }} · SmartReco{% endblock %}
+
+{% block content %}
+{% if needs_instructor_mode %}
+<div class="sr-card" style="max-width:520px;margin:48px auto;padding:28px;text-align:center;">
+  <h1 class="sr-page-title" style="margin-bottom:8px;">{{ panel_label|default('Instructor Panel') }}</h1>
+  <p class="sr-page-subtitle" style="margin-bottom:20px;">
+    You're browsing as a student. Switch to instructor mode to create and manage courses.
+  </p>
+  <button class="sr-btn sr-btn-primary" type="button" onclick="const fd=new FormData();fd.append('mode','instructor');fetch('/api/switch-mode',{method:'POST',body:fd}).then(()=>window.location.reload())">
+    Switch to Instructor Mode
+  </button>
+</div>
+{% else %}
+<header class="sr-admin-head">
+  <div>
+    <h1 class="sr-page-title">
+      {{ panel_label }}
+      {% if is_admin %}
+        <span class="sr-role-badge sr-role-badge-admin" title="You are logged in as an admin">Admin</span>
+      {% else %}
+        <span class="sr-role-badge sr-role-badge-instructor" title="You are logged in as an instructor">Instructor</span>
+      {% endif %}
+    </h1>
+    {% if is_admin %}
+      <p class="sr-page-subtitle">You're an admin — showing every course on the platform ({{ products|length }} total), monitor platform health, and review recommendation analytics.</p>
+    {% else %}
+      <p class="sr-page-subtitle">You're an instructor — showing only courses you created ({{ products|length }} total). Other instructors' or admin-seeded courses are never listed here.</p>
+    {% endif %}
+  </div>
+  <button class="sr-btn sr-btn-primary sr-admin-head-cta" type="button" data-open-modal="addCourseModal">+ Add New Course</button>
+</header>
+
+<div class="sr-stat-grid sr-admin-stat-grid">
+  <div class="sr-card sr-stat-card">
+    <div class="sr-stat-label">Total Users</div>
+    <div class="sr-stat-value">{{ total_users|default(0) }}</div>
+  </div>
+  <div class="sr-card sr-stat-card">
+    <div class="sr-stat-label">Total Courses</div>
+    <div class="sr-stat-value">{{ products|length }}</div>
+  </div>
+  <div class="sr-card sr-stat-card">
+    <div class="sr-stat-label">Recs Generated</div>
+    <div class="sr-stat-value">{{ total_recs|default(0) }}</div>
+  </div>
+  <div class="sr-card sr-stat-card">
+    <div class="sr-stat-label">Events Tracked</div>
+    <div class="sr-stat-value">{{ total_events|default(0) }}</div>
+  </div>
+</div>
+
+<div class="sr-admin-grid">
+
+  <div class="sr-card sr-table-card">
+    <div class="sr-table-head">
+      <div>
+        <h2 class="sr-section-title sr-admin-section-title">Course Management</h2>
+        <p class="sr-admin-section-sub">Courses you own — synced to SQLite and ChromaDB on every change.</p>
+      </div>
+      <div class="sr-table-search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <input type="text" id="courseSearch" placeholder="Search courses…" aria-label="Search courses">
+      </div>
+    </div>
+
+    <div class="sr-table-toolbar">
+      <select id="courseCategoryFilter" class="sr-filter-select sr-table-filter" aria-label="Filter by category">
+        <option value="">All Categories</option>
+        {% for cat in categories %}
+        <option value="{{ cat }}">{{ cat }}</option>
+        {% endfor %}
+      </select>
+      <select id="courseStatusFilter" class="sr-filter-select sr-table-filter" aria-label="Filter by status">
+        <option value="">All Statuses</option>
+        <option value="active">Active</option>
+      </select>
+    </div>
+
+    <div class="sr-admin-table-wrap">
+      <table class="sr-admin-table" id="courseTable">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Category</th>
+            <th>Instructor</th>
+            <th>Price</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if products|length == 0 %}
+          <tr class="sr-table-empty-row" id="courseEmptyRow">
+            <td colspan="6">
+              <div class="sr-table-empty">
+                <p class="sr-table-empty-msg">You haven't created any courses yet.</p>
+                <button class="sr-btn sr-btn-primary sr-btn-sm" type="button" data-open-modal="addCourseModal">+ Add Your First Course</button>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          {% for p in products %}
+          <tr
+            class="sr-course-data-row"
+            data-title="{{ p.title|lower }}"
+            data-category="{{ p.category }}"
+            data-status="active"
+          >
+            <td class="sr-admin-table-title"><strong>{{ p.title }}</strong></td>
+            <td><span class="sr-chip">{{ p.category }}</span></td>
+            <td>{{ p.instructor_name or user.name or 'Instructor' }}</td>
+            <td>{% if p.price == 0 %}Free{% else %}${{ "%.2f"|format(p.price) }}{% endif %}</td>
+            <td><span class="sr-pill sr-pill-success">● Active</span></td>
+            <td>
+              <div class="sr-row-actions">
+                <button type="button" aria-label="Edit {{ p.title }}" onclick="srToast('Editing {{ p.title }}')">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+                </button>
+                <button type="button" aria-label="Delete {{ p.title }}" onclick="deleteCourse({{ p.id }})">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="sr-table-foot">
+      <span id="courseTableSummary">Showing {{ products|length }} course{{ 's' if products|length != 1 else '' }}</span>
+      <div class="sr-pager" id="coursePager" aria-label="Course table pagination"></div>
+    </div>
+  </div>
+
+  <div class="sr-admin-side-stack">
+    <div class="sr-card sr-health-card">
+      <h3 class="sr-admin-card-label">Database Health</h3>
+      <div class="sr-engine-row">
+        <span>SQLite Connection</span>
+        <span id="dbHealthStatus" class="sr-health-value">Checking…</span>
+      </div>
+      <div class="sr-engine-row">
+        <span>Total Events</span>
+        <span id="dbEventCount" class="sr-health-value">{{ total_events|default(0) }}</span>
+      </div>
+    </div>
+    <div class="sr-card sr-health-card">
+      <h3 class="sr-admin-card-label">Vector DB Sync</h3>
+      <div class="sr-engine-row">
+        <span><span class="sr-status-dot" id="chromaStatusDot"></span><span id="chromaSyncStatus">Checking…</span></span>
+        <span id="chromaVectorCount" class="sr-health-value"></span>
+      </div>
+      <p class="sr-health-detail" id="chromaSyncDetail">Verifying ChromaDB collection…</p>
+    </div>
+  </div>
+
+</div>
+
+<section class="sr-card sr-l5-panel" aria-labelledby="l5AnalyticsTitle">
+  <div class="sr-l5-head">
+    <div>
+      <h2 class="sr-section-title sr-admin-section-title" id="l5AnalyticsTitle">Recommendation Analytics &amp; System Health</h2>
+      <p class="sr-admin-section-sub">Real-time AI recommendation conversion tracking, trigger efficiency, and operational metrics.</p>
+    </div>
+    <span class="sr-pill sr-pill-success" id="l5SystemHealthDot">● Checking…</span>
+  </div>
+
+  <div class="sr-stat-grid sr-l5-stat-grid">
+    <div class="sr-card sr-stat-card sr-l5-stat-card">
+      <div class="sr-stat-label">Rec-to-Enroll Conversion</div>
+      <div class="sr-stat-value" id="l5ConversionRate">0.0%</div>
+    </div>
+    <div class="sr-card sr-stat-card sr-l5-stat-card">
+      <div class="sr-stat-label">Avg Recs / User</div>
+      <div class="sr-stat-value" id="l5AvgRecsPerUser">0.0</div>
+    </div>
+    <div class="sr-card sr-stat-card sr-l5-stat-card">
+      <div class="sr-stat-label">Trigger Fire Rate</div>
+      <div class="sr-stat-value" id="l5TriggerFireRate">0.0%</div>
+    </div>
+    <div class="sr-card sr-stat-card sr-l5-stat-card">
+      <div class="sr-stat-label">LLM Calls (Today / Total)</div>
+      <div class="sr-stat-value" id="l5LlmCallsToday">0 / 0</div>
+    </div>
+  </div>
+
+  <div class="sr-l5-grid">
+    <div class="sr-l5-analytics-card">
+      <h3 class="sr-l5-card-title">Most Recommended Courses</h3>
+      <ul class="sr-l5-list" id="l5TopProductsList">
+        <li class="sr-l5-list-empty">Loading analytics…</li>
+      </ul>
+    </div>
+    <div class="sr-l5-analytics-card">
+      <h3 class="sr-l5-card-title">Top Recommended Categories</h3>
+      <ul class="sr-l5-list" id="l5TopCategoriesList">
+        <li class="sr-l5-list-empty">Loading analytics…</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- Add Course Modal -->
+<div class="sr-modal-overlay" id="addCourseModal">
+  <div class="sr-modal" role="dialog" aria-modal="true" aria-labelledby="addCourseTitle">
+    <div class="sr-modal-head">
+      <div>
+        <h2 class="sr-modal-title" id="addCourseTitle">Add New Course</h2>
+        <p class="sr-modal-sub">Fill in the details to create a new learning module.</p>
+      </div>
+      <button class="sr-modal-close" type="button" data-close-modal aria-label="Close">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+
+    <form id="addCourseForm" action="/api/products" method="POST">
+      <div class="sr-form-group">
+        <label for="courseTitle">Course Title</label>
+        <input type="text" id="courseTitle" name="title" placeholder="e.g., Advanced AI Architectures" required>
+      </div>
+
+      <div class="sr-form-group">
+        <label for="courseDesc">Description</label>
+        <textarea id="courseDesc" name="description" placeholder="Provide a comprehensive overview of the course content…"></textarea>
+      </div>
+
+      <div class="sr-form-row">
+        <div class="sr-form-group">
+          <label for="courseCategory">Category</label>
+          <select id="courseCategory" name="category" required>
+            <option value="">Select Category</option>
+            <option value="AI Engineering">AI &amp; Machine Learning</option>
+            <option value="Data Science & Analytics">Data Science</option>
+            <option value="Web Development">Software Dev</option>
+            <option value="Cloud & DevOps">Cloud &amp; DevOps</option>
+          </select>
+        </div>
+        <div class="sr-form-group">
+          <label for="courseInstructor">Instructor</label>
+          <input type="text" id="courseInstructor" name="instructor_name" value="{{ user.name or user.email }}" placeholder="Primary Instructor Name">
+        </div>
+      </div>
+
+      <div class="sr-form-row">
+        <div class="sr-form-group">
+          <label for="coursePrice">Price (USD)</label>
+          <input type="number" id="coursePrice" name="price" min="0" step="0.01" placeholder="0.00">
+        </div>
+        <div class="sr-form-group">
+          <label>Difficulty</label>
+          <input type="hidden" name="level" id="courseLevelInput" value="Beginner">
+          <div class="sr-diff-group">
+            <button type="button" class="sr-diff-btn is-active">Beginner</button>
+            <button type="button" class="sr-diff-btn">Intermediate</button>
+            <button type="button" class="sr-diff-btn">Advanced</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="sr-form-group">
+        <label>Target Skills</label>
+        <input type="hidden" name="skills" id="courseSkillsInput" value="Machine Learning, Python">
+        <div class="sr-tag-input">
+          <span class="sr-tag-chip" data-tag-text="Machine Learning">Machine Learning <button type="button" aria-label="Remove">&times;</button></span>
+          <span class="sr-tag-chip" data-tag-text="Python">Python <button type="button" aria-label="Remove">&times;</button></span>
+          <input type="text" placeholder="Type and press enter…">
+        </div>
+      </div>
+
+      <div class="sr-modal-foot">
+        <button type="button" class="sr-btn sr-btn-secondary" data-close-modal>Cancel</button>
+        <button type="submit" class="sr-btn sr-btn-primary">Save Course</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  async function deleteCourse(id){
+    if(confirm('Are you sure you want to delete this course?')){
+      const res = await fetch('/api/products/' + id, { method: 'DELETE' });
+      if(res.ok){
+        srToast('Course deleted');
+        window.location.reload();
+      }
+    }
+  }
+
+  function renderL5List(container, items, emptyMsg, renderItem){
+    if(!container) return;
+    if(!items || items.length === 0){
+      container.innerHTML = '<li class="sr-l5-list-empty">' + emptyMsg + '</li>';
+      return;
+    }
+    container.innerHTML = items.map(renderItem).join('');
+  }
+
+  function updateHealthUI(health){
+    const dbStatus = document.getElementById('dbHealthStatus');
+    const chromaStatus = document.getElementById('chromaSyncStatus');
+    const chromaCount = document.getElementById('chromaVectorCount');
+    const chromaDetail = document.getElementById('chromaSyncDetail');
+    const chromaDot = document.getElementById('chromaStatusDot');
+    const systemDot = document.getElementById('l5SystemHealthDot');
+
+    if(health && health.checks){
+      const db = health.checks.database;
+      if(dbStatus && db){
+        dbStatus.textContent = db.status === 'ok' ? 'Connected' : 'Error';
+        dbStatus.classList.toggle('sr-health-ok', db.status === 'ok');
+        dbStatus.classList.toggle('sr-health-error', db.status !== 'ok');
+      }
+
+      const chroma = health.checks.chromadb;
+      if(chroma){
+        const ok = chroma.status === 'ok';
+        if(chromaStatus) chromaStatus.textContent = ok ? 'Sync Active' : 'Sync Error';
+        if(chromaCount) chromaCount.textContent = ok ? (chroma.collection_count + ' vectors') : '';
+        if(chromaDetail) chromaDetail.textContent = ok
+          ? 'ChromaDB collection in sync with SQLite catalog.'
+          : ('Error: ' + (chroma.error || 'Unknown'));
+        if(chromaDot){
+          chromaDot.style.background = ok ? '' : 'var(--danger)';
+        }
+      }
+    }
+
+    if(systemDot){
+      if(health && health.status === 'healthy'){
+        systemDot.textContent = '● Live System Healthy';
+        systemDot.className = 'sr-pill sr-pill-success';
+      } else {
+        systemDot.textContent = '● System Degraded';
+        systemDot.className = 'sr-pill sr-pill-warn';
+      }
+    }
+  }
+
+  async function loadLevel5Analytics() {
+    try {
+      const [analyticsRes, healthRes] = await Promise.all([
+        fetch('/api/admin/analytics'),
+        fetch('/health')
+      ]);
+
+      if(healthRes.ok){
+        updateHealthUI(await healthRes.json());
+      } else {
+        updateHealthUI(null);
+      }
+
+      if(analyticsRes.ok){
+        const data = await analyticsRes.json();
+
+        if(data.conversion_rate){
+          document.getElementById('l5ConversionRate').textContent = data.conversion_rate.conversion_rate_pct + '%';
+        }
+        if(data.recommendations_per_user){
+          document.getElementById('l5AvgRecsPerUser').textContent = data.recommendations_per_user.avg_recommendations_per_user;
+        }
+        if(data.trigger_efficiency && data.trigger_efficiency.metrics){
+          const fr = (data.trigger_efficiency.metrics.fire_rate * 100).toFixed(1);
+          document.getElementById('l5TriggerFireRate').textContent = fr + '%';
+        }
+
+        renderL5List(
+          document.getElementById('l5TopProductsList'),
+          data.most_recommended && data.most_recommended.top_products,
+          'No recommendations generated yet.',
+          p => '<li class="sr-l5-list-item"><span><strong>' + p.title + '</strong> <span class="sr-l5-list-meta">(' + p.category + ')</span></span><span class="sr-chip sr-l5-chip">' + p.recommendation_count + ' recs</span></li>'
+        );
+
+        renderL5List(
+          document.getElementById('l5TopCategoriesList'),
+          data.most_recommended && data.most_recommended.top_categories,
+          'No category recommendations yet.',
+          c => '<li class="sr-l5-list-item"><span><strong>' + c.category + '</strong></span><span class="sr-chip sr-l5-chip">' + c.recommendation_count + ' recs</span></li>'
+        );
+      }
+    } catch(err) {
+      console.error('Failed to load Level 5 analytics UI:', err);
+    }
+  }
+
+  async function loadMetrics() {
+    try {
+      const res = await fetch('/metrics');
+      if(res.ok){
+        const m = await res.json();
+        if(m.llm_calls){
+          document.getElementById('l5LlmCallsToday').textContent = m.llm_calls.calls_today + ' / ' + m.llm_calls.total_calls;
+        }
+      }
+    } catch(e) {}
+  }
+
+  /* ---------- Course table filter + pagination (client-side) ---------- */
+  const COURSE_PAGE_SIZE = 8;
+  let courseCurrentPage = 1;
+
+  function getCourseDataRows(){
+    return Array.from(document.querySelectorAll('#courseTable tbody tr.sr-course-data-row'));
+  }
+
+  function getFilteredCourseRows(){
+    const q = (document.getElementById('courseSearch')?.value || '').trim().toLowerCase();
+    const category = document.getElementById('courseCategoryFilter')?.value || '';
+    const status = document.getElementById('courseStatusFilter')?.value || '';
+
+    return getCourseDataRows().filter(row => {
+      const title = row.dataset.title || '';
+      const rowCategory = row.dataset.category || '';
+      const rowStatus = row.dataset.status || '';
+      const matchesSearch = !q || title.includes(q);
+      const matchesCategory = !category || rowCategory === category;
+      const matchesStatus = !status || rowStatus === status;
+      return matchesSearch && matchesCategory && matchesStatus;
+    });
+  }
+
+  function buildPaginationItems(current, total){
+    if(total <= 1) return [];
+    if(total <= 10){
+      return Array.from({length: total}, (_, i) => i + 1);
+    }
+
+    const items = [];
+    const addPage = (n) => items.push(n);
+    const addEllipsis = () => {
+      if(items[items.length - 1] !== '...') items.push('...');
+    };
+
+    addPage(1);
+
+    let left, right;
+    if(current <= 5){
+      left = 2;
+      right = Math.min(10, total - 1);
+    } else if(current >= total - 4){
+      left = Math.max(2, total - 7);
+      right = total - 1;
+    } else {
+      left = current - 2;
+      right = current + 2;
+    }
+
+    if(left > 2) addEllipsis();
+    for(let i = left; i <= right; i++) addPage(i);
+    if(right < total - 1) addEllipsis();
+    if(total > 1) addPage(total);
+
+    return items;
+  }
+
+  function renderCoursePager(totalPages){
+    const pager = document.getElementById('coursePager');
+    if(!pager) return;
+
+    pager.innerHTML = '';
+    if(totalPages <= 1){
+      pager.hidden = true;
+      return;
+    }
+
+    pager.hidden = false;
+
+    const prevBtn = document.createElement('button');
+    prevBtn.type = 'button';
+    prevBtn.textContent = '‹';
+    prevBtn.className = 'sr-pager-nav';
+    prevBtn.disabled = courseCurrentPage <= 1;
+    prevBtn.setAttribute('aria-label', 'Previous page');
+    prevBtn.addEventListener('click', () => {
+      if(courseCurrentPage > 1){
+        courseCurrentPage -= 1;
+        applyCourseTableView();
+      }
+    });
+    pager.appendChild(prevBtn);
+
+    buildPaginationItems(courseCurrentPage, totalPages).forEach(item => {
+      if(item === '...'){
+        const span = document.createElement('span');
+        span.className = 'sr-pager-ellipsis';
+        span.textContent = '…';
+        span.setAttribute('aria-hidden', 'true');
+        pager.appendChild(span);
+        return;
+      }
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = String(item);
+      btn.className = item === courseCurrentPage ? 'is-active' : '';
+      btn.setAttribute('aria-label', 'Page ' + item);
+      btn.addEventListener('click', () => {
+        courseCurrentPage = item;
+        applyCourseTableView();
+      });
+      pager.appendChild(btn);
+    });
+
+    const nextBtn = document.createElement('button');
+    nextBtn.type = 'button';
+    nextBtn.textContent = '›';
+    nextBtn.className = 'sr-pager-nav';
+    nextBtn.disabled = courseCurrentPage >= totalPages;
+    nextBtn.setAttribute('aria-label', 'Next page');
+    nextBtn.addEventListener('click', () => {
+      if(courseCurrentPage < totalPages){
+        courseCurrentPage += 1;
+        applyCourseTableView();
+      }
+    });
+    pager.appendChild(nextBtn);
+  }
+
+  function applyCourseTableView(){
+    const emptyRow = document.getElementById('courseEmptyRow');
+    const summary = document.getElementById('courseTableSummary');
+    const rows = getFilteredCourseRows();
+    const totalRows = rows.length;
+
+    if(emptyRow){
+      emptyRow.style.display = '';
+      if(summary) summary.textContent = 'Showing 0 courses';
+      renderCoursePager(0);
+      return;
+    }
+
+    if(totalRows === 0){
+      getCourseDataRows().forEach(row => { row.style.display = 'none'; });
+      if(summary) summary.textContent = 'Showing 0 courses';
+      renderCoursePager(0);
+      return;
+    }
+
+    const totalPages = Math.ceil(totalRows / COURSE_PAGE_SIZE);
+    if(courseCurrentPage > totalPages) courseCurrentPage = totalPages;
+    if(courseCurrentPage < 1) courseCurrentPage = 1;
+
+    const start = (courseCurrentPage - 1) * COURSE_PAGE_SIZE;
+    const end = start + COURSE_PAGE_SIZE;
+    const visibleSet = new Set(rows.slice(start, end));
+
+    getCourseDataRows().forEach(row => {
+      row.style.display = visibleSet.has(row) ? '' : 'none';
+    });
+
+    const from = start + 1;
+    const to = Math.min(end, totalRows);
+    if(summary){
+      summary.textContent = totalRows === 1
+        ? 'Showing 1 course'
+        : 'Showing ' + from + '–' + to + ' of ' + totalRows + ' courses';
+    }
+
+    renderCoursePager(totalPages);
+  }
+
+  function initCourseTableControls(){
+    let search = document.getElementById('courseSearch');
+    const categoryFilter = document.getElementById('courseCategoryFilter');
+    const statusFilter = document.getElementById('courseStatusFilter');
+
+    const onChange = () => {
+      courseCurrentPage = 1;
+      applyCourseTableView();
+    };
+
+    if(search){
+      const freshSearch = search.cloneNode(true);
+      search.parentNode.replaceChild(freshSearch, search);
+      search = freshSearch;
+      search.addEventListener('input', onChange);
+    }
+    if(categoryFilter){
+      categoryFilter.addEventListener('change', onChange);
+    }
+    if(statusFilter){
+      statusFilter.addEventListener('change', onChange);
+    }
+
+    applyCourseTableView();
+  }
+
+  document.addEventListener('DOMContentLoaded', () => {
+    loadLevel5Analytics();
+    loadMetrics();
+    initCourseTableControls();
+  });
+</script>
+{% endblock %}
