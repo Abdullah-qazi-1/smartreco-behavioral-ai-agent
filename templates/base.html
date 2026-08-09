@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}SmartReco{% endblock %}</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+
+{% block extra_head %}{% endblock %}
+</head>
+<body>
+<div class="sr-app">
+
+  {% if user %}
+  <!-- ============ Shared Unified Sidebar ============ -->
+  <aside class="sr-sidebar">
+    <div class="sr-sidebar-brand">
+      <div class="sr-brand-mark">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M12 2l1.8 5.6L19 9l-5.2 1.4L12 16l-1.8-5.6L5 9l5.2-1.4L12 2z" fill="currentColor"/></svg>
+      </div>
+      <div class="sr-sidebar-brand-text">
+        <b>SmartReco</b>
+        <span>Premium Learning</span>
+      </div>
+    </div>
+
+    <nav class="sr-nav">
+      <a class="sr-nav-item {% if active_page == 'dashboard' %}is-active{% endif %}" href="/dashboard">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke="currentColor" stroke-width="1.6"/></svg>
+        Dashboard
+      </a>
+      <a class="sr-nav-item {% if active_page == 'catalog' %}is-active{% endif %}" href="/catalog">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 5a2 2 0 012-2h8l6 6v10a2 2 0 01-2 2H6a2 2 0 01-2-2V5z" stroke="currentColor" stroke-width="1.6"/><path d="M14 3v6h6" stroke="currentColor" stroke-width="1.6"/></svg>
+        Course Catalog
+      </a>
+      <a class="sr-nav-item {% if active_page == 'my_learning' %}is-active{% endif %}" href="/my-learning">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 19V6a2 2 0 012-2h9l5 5v10a2 2 0 01-2 2H6a2 2 0 01-2-2z" stroke="currentColor" stroke-width="1.6"/></svg>
+        My Learning
+      </a>
+      <a class="sr-nav-item {% if active_page == 'ai_insights' %}is-active{% endif %}" href="/ai-insights">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 2l1.6 4.9L18 8.5l-4.4 1.6L12 15l-1.6-4.9L6 8.5l4.4-1.6L12 2z" fill="currentColor"/></svg>
+        AI Insights
+      </a>
+
+      {% set curr_mode = user.active_mode if user and user.active_mode else (request.session.get('active_mode', 'student') if request else 'student') %}
+      {% if user and user.role == 'admin' %}
+      <a class="sr-nav-item {% if active_page == 'admin' %}is-active{% endif %}" href="/admin">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 19h16M4 15l4-4 4 3 6-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Admin Panel
+      </a>
+      {% elif curr_mode == 'instructor' %}
+      <a class="sr-nav-item {% if active_page == 'admin' %}is-active{% endif %}" href="/admin">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 19h16M4 15l4-4 4 3 6-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Instructor Panel
+      </a>
+      {% endif %}
+
+      <a class="sr-nav-item {% if active_page == 'profile' %}is-active{% endif %}" href="/profile">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="1.6"/><path d="M6 21v-2a4 4 0 014-4h4a4 4 0 014 4v2" stroke="currentColor" stroke-width="1.6"/></svg>
+        Profile
+      </a>
+      <a class="sr-nav-item {% if active_page == 'settings' %}is-active{% endif %}" href="/settings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z" stroke="currentColor" stroke-width="1.6"/></svg>
+        Settings
+      </a>
+    </nav>
+
+    <div class="sr-sidebar-foot">
+      <form action="/logout" method="POST">
+        <button type="submit" class="sr-btn sr-btn-secondary sr-btn-block sr-btn-sm">Sign Out</button>
+      </form>
+    </div>
+  </aside>
+
+  <!-- ============ Shared Main Content Wrapper ============ -->
+  <div>
+    <header class="sr-topbar">
+      <div class="sr-topbar-actions">
+        <button class="sr-icon-btn" aria-label="Notifications"><span class="dot"></span>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M6 8a6 6 0 0112 0c0 5 2 6 2 6H4s2-1 2-6z" stroke="currentColor" stroke-width="1.6"/><path d="M10 20a2 2 0 004 0" stroke="currentColor" stroke-width="1.6"/></svg>
+        </button>
+        <div class="user-menu" style="position:relative;">
+          <div class="sr-avatar" style="cursor:pointer;" onclick="toggleDropdown(event)">{{ user.name[0] if user and user.name else (user.email[0]|upper if user and user.email else 'U') }}</div>
+          <div class="dropdown-panel" id="userDropdown" style="position:absolute; right:0; top:48px; min-width:240px; background:var(--sr-card-bg, #18191e); border:1px solid var(--sr-border, #2d3139); border-radius:12px; padding:12px; display:none; z-index:100; box-shadow:0 10px 30px rgba(0,0,0,0.5);">
+            <div style="font-weight:600; color:#fff; padding-bottom:4px;">{{ user.name or (user.email.split('@')[0] if user else 'User') }}</div>
+            <div style="font-size:12px; color:#8a8f9d; padding-bottom:10px; border-bottom:1px solid #2d3139; margin-bottom:10px;">{{ user.email if user else '' }}</div>
+
+            <div style="margin-bottom:10px;">
+              <button onclick="switchUserMode('{{ 'student' if curr_mode == 'instructor' else 'instructor' }}')" class="sr-btn sr-btn-secondary sr-btn-sm sr-btn-block" style="width:100%; text-align:center;">
+                {% if curr_mode == 'instructor' %}
+                  Switch to Student Mode
+                {% else %}
+                  Become an Instructor
+                {% endif %}
+              </button>
+            </div>
+
+            <div style="border-top:1px solid #2d3139; padding-top:8px;">
+              <form action="/logout" method="POST">
+                <button type="submit" style="background:none; border:none; color:#ff5c5c; cursor:pointer; font-size:13px; width:100%; text-align:left;">Sign Out</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="sr-main">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+  {% else %}
+    {% block unauth_content %}{% endblock %}
+  {% endif %}
+
+</div>
+
+<script src="/static/script.js"></script>
+<script>
+function toggleDropdown(e){
+  if (e) e.stopPropagation();
+  const dropdown = document.getElementById('userDropdown');
+  if (dropdown) dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+}
+
+document.addEventListener('click', () => {
+  const dropdown = document.getElementById('userDropdown');
+  if (dropdown) dropdown.style.display = 'none';
+});
+
+async function switchUserMode(targetMode) {
+  try {
+    const formData = new FormData();
+    formData.append('mode', targetMode);
+    const res = await fetch('/api/switch-mode', {
+      method: 'POST',
+      body: formData
+    });
+    const data = await res.json();
+    if (data.redirect_url) {
+      window.location.href = data.redirect_url;
+    } else {
+      window.location.reload();
+    }
+  } catch(err) {
+    console.error('Failed to switch mode:', err);
+  }
+}
+</script>
+
+{% if user %}
+{% set tracking_on = tracking_enabled if tracking_enabled is defined and tracking_enabled is not none else request.session.get('agent_tracking_enabled', True) %}
+<script>window.__SMARTRECO_TRACKING_ENABLED__ = {{ 'true' if tracking_on else 'false' }};</script>
+<script src="/static/js/debounce.js"></script>
+<script src="/static/js/tracker.js"></script>
+{% endif %}
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

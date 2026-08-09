@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign In · SmartReco</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<main class="sr-slide-screen">
+  <div class="sr-slide-container" id="authContainer">
+
+    <!-- ============ Sign In form ============ -->
+    <div class="sr-slide-form sr-slide-signin">
+      <h1 class="sr-slide-title" style="margin-bottom: 6px;">Sign In</h1>
+      <p style="font-size: 0.86rem; color: var(--ink-500); margin: 0 0 20px; font-weight: 500;">Welcome back! Sign in to access your learning portal.</p>
+
+      {% if login_error %}
+      <div style="background:var(--warn-bg);color:var(--warn);padding:10px 14px;border-radius:8px;font-size:0.85rem;margin-bottom:14px;font-weight:600;">
+        {{ login_error }}
+      </div>
+      {% endif %}
+
+      {% if email_not_found %}
+      <div style="background:var(--warn-bg);color:var(--warn);padding:10px 14px;border-radius:8px;font-size:0.85rem;margin-bottom:14px;font-weight:600;">
+        No account found with this email. Please check or sign up.
+      </div>
+      {% endif %}
+
+      {% if success_message %}
+      <div style="background:var(--success-bg);color:var(--success);padding:10px 14px;border-radius:8px;font-size:0.85rem;margin-bottom:14px;font-weight:600;">
+        {{ success_message }}
+      </div>
+      {% endif %}
+
+      <form action="/login" method="POST" id="loginForm" style="width: 100%;">
+        <label class="sr-slide-label" for="signinEmail">Email Address</label>
+        <input class="sr-slide-input" type="email" name="email" id="signinEmail" placeholder="you@example.com" autocomplete="email" required style="margin-bottom:14px;">
+
+        <label class="sr-slide-label" for="signinPassword">Password</label>
+        <div class="sr-input-wrap">
+          <input class="sr-slide-input" type="password" name="password" id="signinPassword" placeholder="Enter your password" autocomplete="current-password" required>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:16px;">
+          <a class="sr-slide-forgot" href="#" style="margin:0;">Forgot password?</a>
+          <button type="submit" class="sr-slide-submit">Sign In</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- ============ Sign Up form ============ -->
+    <div class="sr-slide-form sr-slide-signup">
+      <h1 class="sr-slide-title" style="margin-bottom: 6px;">Create Account</h1>
+      <p style="font-size: 0.86rem; color: var(--ink-500); margin: 0 0 20px; font-weight: 500;">Join SmartReco for personalized AI course recommendations.</p>
+
+      {% if signup_error %}
+      <div style="background:var(--warn-bg);color:var(--warn);padding:10px 14px;border-radius:8px;font-size:0.85rem;margin-bottom:14px;font-weight:600;">
+        {{ signup_error }}
+      </div>
+      {% endif %}
+
+      <form action="/signup" method="POST" id="signupForm" style="width: 100%;">
+        <label class="sr-slide-label" for="signupName">Full Name</label>
+        <input class="sr-slide-input" type="text" name="name" id="signupName" placeholder="John Doe" autocomplete="name" required style="margin-bottom:14px;">
+
+        <label class="sr-slide-label" for="signupEmail">Email Address</label>
+        <input class="sr-slide-input" type="email" name="email" id="signupEmail" placeholder="you@example.com" autocomplete="email" required style="margin-bottom:14px;">
+
+        <label class="sr-slide-label" for="signupPassword">Password</label>
+        <input class="sr-slide-input" type="password" name="password" id="signupPassword" placeholder="Min 8 chars, uppercase & lowercase" autocomplete="new-password" required style="margin-bottom:20px;">
+
+        <button type="submit" class="sr-slide-submit" style="margin-top: 4px;">Create Account</button>
+      </form>
+    </div>
+
+
+    <!-- ============ Sliding overlay ============ -->
+    <div class="sr-slide-overlay-container">
+      <div class="sr-slide-overlay">
+
+        <div class="sr-slide-overlay-panel sr-slide-overlay-left">
+          <div class="sr-slide-overlay-mark">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 2l1.8 5.6L19 9l-5.2 1.4L12 16l-1.8-5.6L5 9l5.2-1.4L12 2z" fill="currentColor"/></svg>
+          </div>
+          <h2 class="sr-slide-overlay-title">Welcome Back!</h2>
+          <p class="sr-slide-overlay-text">Already have an account? Sign in to continue your personalized learning journey with SmartReco.</p>
+          <button class="sr-slide-ghost" data-slide-to="signin">Sign In</button>
+        </div>
+
+        <div class="sr-slide-overlay-panel sr-slide-overlay-right">
+          <div class="sr-slide-overlay-mark">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 2l1.8 5.6L19 9l-5.2 1.4L12 16l-1.8-5.6L5 9l5.2-1.4L12 2z" fill="currentColor"/></svg>
+          </div>
+          <h2 class="sr-slide-overlay-title">Hello, Friend!</h2>
+          <p class="sr-slide-overlay-text">Enter your personal details and start your AI-powered learning journey with us.</p>
+          <button class="sr-slide-ghost" data-slide-to="signup">Sign Up</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- Mobile fallback -->
+    <p class="sr-slide-mobile-switch">
+      <span data-mobile-signin>Don't have an account? <a href="#" data-slide-to="signup">Sign Up</a></span>
+      <span data-mobile-signup style="display:none">Already have an account? <a href="#" data-slide-to="signin">Sign In</a></span>
+    </p>
+
+  </div>
+</main>
+
+<script src="/static/script.js"></script>
+<script>
+  const authContainer = document.getElementById('authContainer');
+  const mobileSignin = document.querySelector('[data-mobile-signin]');
+  const mobileSignup = document.querySelector('[data-mobile-signup]');
+  document.querySelectorAll('[data-slide-to]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      const toSignup = el.dataset.slideTo === 'signup';
+      if(mobileSignin) mobileSignin.style.display = toSignup ? 'none' : 'inline';
+      if(mobileSignup) mobileSignup.style.display = toSignup ? 'inline' : 'none';
+    });
+  });
+</script>
+</body>
+</html>
