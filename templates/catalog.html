@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block title %}Course Catalog · SmartReco{% endblock %}
+
+{% block content %}
+<h1 class="sr-page-title">Course Catalog</h1>
+<p class="sr-page-subtitle">Browse every course, filtered and ranked for where you want to go next.</p>
+
+<div class="sr-search sr-catalog-search">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+  <input type="text" id="catalogSearchInput" placeholder="Search courses, skills, or topics...">
+  <span id="searchSpinner" class="sr-search-spinner" aria-hidden="true" style="display:none;"></span>
+</div>
+
+<style>
+  /* Added: visual feedback while /api/search is in flight (that call goes through
+     Mesh for semantic re-ranking and can take a couple seconds — without this the
+     UI can look frozen). Purely additive, scoped to this element only. */
+  .sr-catalog-search { position: relative; }
+  .sr-search-spinner {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    margin-top: -8px;
+    border: 2px solid rgba(0, 0, 0, 0.15);
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: sr-spin 0.7s linear infinite;
+  }
+  @keyframes sr-spin {
+    to { transform: rotate(360deg); }
+  }
+</style>
+
+<form id="filterForm" action="/catalog" method="GET">
+  <div class="sr-filter-bar">
+    <button type="submit" name="category" value="All Categories" class="sr-filter-pill {% if active_category == 'All Categories' %}is-active{% endif %}">All Categories</button>
+    {% for cat in categories[:4] %}
+    <button type="submit" name="category" value="{{ cat }}" class="sr-filter-pill {% if active_category == cat %}is-active{% endif %}">{{ cat }}</button>
+    {% endfor %}
+
+    <select name="level" class="sr-filter-select" onchange="document.getElementById('filterForm').submit()">
+      <option value="All Levels" {% if active_level == 'All Levels' %}selected{% endif %}>All Levels</option>
+      <option value="Beginner" {% if active_level == 'Beginner' %}selected{% endif %}>Beginner</option>
+      <option value="Intermediate" {% if active_level == 'Intermediate' %}selected{% endif %}>Intermediate</option>
+      <option value="Advanced" {% if active_level == 'Advanced' %}selected{% endif %}>Advanced</option>
+    </select>
+
+    <select name="price" class="sr-filter-select" onchange="document.getElementById('filterForm').submit()">
+      <option value="Price: All" {% if active_price == 'Price: All' %}selected{% endif %}>Price: All</option>
+      <option value="Free" {% if active_price == 'Free' %}selected{% endif %}>Free</option>
+      <option value="Paid" {% if active_price == 'Paid' %}selected{% endif %}>Paid</option>
+    </select>
+
+    <select name="sort" class="sr-filter-select" onchange="document.getElementById('filterForm').submit()">
+      <option value="Sort: Recommended" {% if active_sort == 'Sort: Recommended' %}selected{% endif %}>Sort: Recommended</option>
+      <option value="Rating" {% if active_sort == 'Rating' %}selected{% endif %}>Sort: Rating</option>
+      <option value="Newest" {% if active_sort == 'Newest' %}selected{% endif %}>Sort: Newest</option>
+    </select>
+  </div>
+</form>
+
+<div class="sr-course-grid" id="courseGrid">
+
+  {% for p in products %}
+  <a class="sr-card sr-course-card" href="/course-details?id={{ p.id }}" data-sr-track-click data-product-id="{{ p.id }}" data-source="catalog">
+    <div class="sr-course-card-top">
+      <div class="sr-course-badges">
+        <span class="sr-badge">{{ p.category }}</span>
+        <span class="sr-badge">{{ p.level or 'All Levels' }}</span>
+      </div>
+      <button class="sr-fav-btn {% if p.id in wishlist_ids %}is-active{% endif %}" data-course-id="{{ p.id }}" aria-label="Save course" onclick="event.preventDefault(); toggleWishlist(event, {{ p.id }});">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 20s-7-4.4-9.5-8.7C.7 8 2 4.5 5.4 4A5 5 0 0112 6.5 5 5 0 0118.6 4c3.4.5 4.7 4 3 7.3C19 15.6 12 20 12 20z" stroke="currentColor" stroke-width="1.6"/></svg>
+      </button>
+    </div>
+    <h3 class="sr-course-title">{{ p.title }}</h3>
+    <p class="sr-course-instructor">{{ p.instructor_name or 'SmartReco Instructor' }}</p>
+    <div class="sr-course-rating">{% if p.rating %}★ {{ "%.1f"|format(p.rating) }} ({{ p.num_ratings or 0 }}){% else %}New — no ratings yet{% endif %}</div>
+    <div class="sr-chip-row">
+      {% if p.skills %}
+        {% for skill in p.skills.split(',')[:3] %}
+        <span class="sr-chip">{{ skill.strip() }}</span>
+        {% endfor %}
+      {% endif %}
+    </div>
+    <div class="sr-course-card-foot">
+      <span class="sr-price {% if p.price == 0 %}sr-price-free{% endif %}">{% if p.price == 0 %}Free{% else %}${{ "%.2f"|format(p.price) }}{% endif %}</span>
+      <span class="sr-btn sr-btn-secondary sr-btn-sm">View Details</span>
+    </div>
+  </a>
+  {% endfor %}
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/debounce.js"></script>
+<script>
+  const searchInput = document.getElementById('catalogSearchInput');
+  let searchController = null;
+
+  function renderSearchResults(results) {
+    const grid = document.getElementById('courseGrid');
+    if (!grid) return;
+    grid.innerHTML = results.map(p => `
+      <a class="sr-card sr-course-card" href="/course-details?id=${p.id}" data-sr-track-click data-product-id="${p.id}" data-source="catalog">
+        <div class="sr-course-card-top">
+          <div class="sr-course-badges">
+            <span class="sr-badge">${p.category}</span>
+            <span class="sr-badge">${p.level || 'All Levels'}</span>
+          </div>
+          <button class="sr-fav-btn" data-course-id="${p.id}" aria-label="Save course">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 20s-7-4.4-9.5-8.7C.7 8 2 4.5 5.4 4A5 5 0 0112 6.5 5 5 0 0118.6 4c3.4.5 4.7 4 3 7.3C19 15.6 12 20 12 20z" stroke="currentColor" stroke-width="1.6"/></svg>
+          </button>
+        </div>
+        <h3 class="sr-course-title">${p.title}</h3>
+        <p class="sr-course-instructor">${p.instructor_name || 'SmartReco Instructor'}</p>
+        <div class="sr-course-rating">${p.rating ? ('★ ' + p.rating.toFixed(1) + ' (' + (p.num_ratings || 0) + ')') : 'New — no ratings yet'}</div>
+        <div class="sr-course-card-foot">
+          <span class="sr-price ${p.price === 0 ? 'sr-price-free' : ''}">${p.price === 0 ? 'Free' : '$' + p.price.toFixed(2)}</span>
+          <span class="sr-btn sr-btn-secondary sr-btn-sm">View Details</span>
+        </div>
+      </a>
+    `).join('');
+  }
+
+  async function runSearch(query) {
+    const q = (query || '').trim();
+    if (searchController) searchController.abort();
+    searchController = new AbortController();
+    const spinner = document.getElementById('searchSpinner');
+    if (spinner) spinner.style.display = 'inline-block';
+    try {
+      const res = await fetch('/api/search?q=' + encodeURIComponent(q), {
+        signal: searchController.signal,
+      });
+      const data = await res.json();
+      const results = data.results || [];
+      renderSearchResults(results);
+      if (q && window.SmartRecoTracker) {
+        window.SmartRecoTracker.track('search', null, { query: q, result_count: results.length });
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') console.error('Search failed:', err);
+    } finally {
+      // Only hide the spinner if this request wasn't superseded by a newer one
+      // (an aborted request's finally still fires, but a fresh spinner show from
+      // the next runSearch() call should win — checking abort signal avoids a
+      // flicker where an old request's finally hides the new request's spinner).
+      if (spinner && !searchController.signal.aborted) spinner.style.display = 'none';
+    }
+  }
+
+  if (searchInput) {
+    const debouncedSearch = debounce(runSearch, 500);
+    searchInput.addEventListener('input', (e) => debouncedSearch(e.target.value));
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        debouncedSearch.cancel();
+        runSearch(e.target.value);
+      }
+    });
+  }
+
+  async function toggleWishlist(e, productId) {
+    if(e) e.stopPropagation();
+    try {
+      const formData = new FormData();
+      formData.append('product_id', productId);
+      const res = await fetch('/api/wishlist/toggle', {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      const btn = e.currentTarget;
+      if (btn) btn.classList.toggle('is-active', data.saved);
+    } catch(err){}
+  }
+</script>
+{% endblock %}

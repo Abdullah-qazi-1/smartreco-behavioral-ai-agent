@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block extra_head %}
+<script>window.__SMARTRECO_PRODUCT_ID__ = {{ product.id }};</script>
+{% endblock %}
+
+{% block title %}{{ product.title }} · SmartReco{% endblock %}
+
+{% block content %}
+<div class="sr-details-grid">
+
+  <div>
+    <div class="sr-details-meta">
+      <span class="sr-badge">{{ product.level or 'All Levels' }} · {{ product.category }}</span>
+      <span class="sr-badge sr-badge-ai">✨ AI Match</span>
+    </div>
+    <h1 class="sr-details-title">{{ product.title }}</h1>
+
+    <div class="sr-instructor-row">
+      <span class="sr-instructor-avatar"></span>
+      <span>{{ product.instructor_name or 'Dr. Eleanor Vance' }}</span>
+      <span class="sr-rating-inline">· <strong>★ {{ "%.1f"|format(product.rating or 4.9) }}</strong> ({{ product.num_ratings or 12450 }} ratings) · {{ product.enrolled_students or 145000 }} students</span>
+    </div>
+
+    <div class="sr-chip-row" style="margin-bottom:22px">
+      {% if product.skills %}
+        {% for skill in product.skills.split(',') %}
+        <span class="sr-chip">{{ skill.strip() }}</span>
+        {% endfor %}
+      {% else %}
+        <span class="sr-chip">Python</span>
+        <span class="sr-chip">Machine Learning</span>
+        <span class="sr-chip">Data Modeling</span>
+      {% endif %}
+    </div>
+
+    <div class="sr-details-body">
+      <h3>About this Course</h3>
+      <p>{{ product.description }}</p>
+
+      <div class="sr-learn-box">
+        <h3 style="margin-top:0">What you'll learn</h3>
+        <ul class="sr-learn-grid">
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 12l5 5L20 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Master core concepts and real-world implementation strategies in {{ product.category }}.</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 12l5 5L20 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Build hands-on projects designed for {{ product.level or 'all' }} level learners.</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 12l5 5L20 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Deploy production-ready models and architectures with best practices.</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 12l5 5L20 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg> Understand performance optimization and error handling techniques.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div>
+    <div class="sr-card sr-buy-card">
+      <div class="sr-price-row">
+        <span class="sr-price-now">{% if product.price == 0 %}Free{% else %}${{ "%.2f"|format(product.price) }}{% endif %}</span>
+        {% if product.price > 0 %}
+        <span class="sr-price-was">${{ "%.2f"|format(product.price * 1.5) }}</span>
+        {% endif %}
+      </div>
+      
+      {% if is_enrolled %}
+      <button class="sr-btn sr-btn-primary sr-btn-block" disabled>Already Enrolled</button>
+      {% else %}
+      <button class="sr-btn sr-btn-primary sr-btn-block" id="enrollBtn" data-sr-track-click data-product-id="{{ product.id }}" data-source="course_enroll_cta">Purchase Now</button>
+      {% endif %}
+
+      <div style="height:10px"></div>
+      <button class="sr-btn sr-btn-secondary sr-btn-block {% if is_saved %}is-active{% endif %}" id="saveBtn">
+        {% if is_saved %}★ Saved for Later{% else %}☐ Save for Later{% endif %}
+      </button>
+
+      <ul class="sr-meta-list">
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="1.6"/></svg> {{ product.duration_hours or 40 }} hours of on-demand video</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" stroke="currentColor" stroke-width="1.6"/></svg> Certificate of completion</li>
+        <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M7 18a4 4 0 010-8 5 5 0 019.6-1.5A4.5 4.5 0 0118 18H7z" stroke="currentColor" stroke-width="1.6"/></svg> Full lifetime access</li>
+      </ul>
+    </div>
+
+    <div class="sr-card sr-related-card">
+      <h3 class="sr-eyebrow" style="margin:0 0 6px">✨ Because you viewed this</h3>
+      {% for r in related_products %}
+      <a class="sr-related-item" href="/course-details?id={{ r.id }}" data-sr-track-click data-product-id="{{ r.id }}" data-source="related">
+        <span class="sr-related-thumb"></span>
+        <span><strong>{{ r.title }}</strong><span>★ {{ "%.1f"|format(r.rating or 4.8) }}</span></span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const courseId = {{ product.id }};
+    const enrollBtn = document.getElementById('enrollBtn');
+    if(enrollBtn){
+      enrollBtn.addEventListener('click', async () => {
+        const fd = new FormData();
+        fd.append('product_id', courseId);
+        const res = await fetch('/api/enroll', { method: 'POST', body: fd });
+        const data = await res.json();
+        if(data.enrolled || data.already_enrolled){
+          srToast('Successfully enrolled!');
+          enrollBtn.disabled = true;
+          enrollBtn.textContent = 'Already Enrolled';
+        }
+      });
+    }
+
+    const saveBtn = document.getElementById('saveBtn');
+    if(saveBtn){
+      saveBtn.addEventListener('click', async () => {
+        const fd = new FormData();
+        fd.append('product_id', courseId);
+        const res = await fetch('/api/wishlist/toggle', { method: 'POST', body: fd });
+        const data = await res.json();
+        saveBtn.textContent = data.saved ? '★ Saved for Later' : '☐ Save for Later';
+        srToast(data.saved ? 'Saved to wishlist' : 'Removed from wishlist');
+      });
+    }
+  });
+</script>
+{% endblock %}
