@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard · SmartReco{% endblock %}
+
+{% block content %}
+<h1 class="sr-page-title">Welcome back, {{ user.name or user.email.split('@')[0] }}.</h1>
+<p class="sr-page-subtitle">You're making great progress. Here's your personalized learning landscape for today.</p>
+
+<div class="sr-dash-grid">
+  <div>
+
+    <div class="sr-card sr-insight-card" id="recCard">
+      <div class="sr-insight-head">
+        <span class="sr-insight-tag">✨ AI INSIGHT</span>
+        <span class="sr-match-badge" id="recMatchBadge">— Match</span>
+        <button type="button" class="sr-dismiss-btn" id="recDismissBtn" data-sr-track-dismiss data-source="recommendation" title="Not for me" style="display:none;margin-left:auto;background:none;border:1px solid var(--line,#2d3139);color:var(--ink-500);border-radius:6px;padding:2px 8px;cursor:pointer;font-size:12px;">Not for me</button>
+      </div>
+      <h2 class="sr-insight-title" id="recTitle">Personalized Recommendations</h2>
+      <p class="sr-insight-text" id="recNarrative">Loading your personalized learning path...</p>
+      <div class="sr-tag-row" id="recTags"></div>
+      <div class="sr-insight-actions">
+        <a class="sr-btn sr-btn-primary" id="recStartBtn" href="/catalog" data-sr-track-click data-source="recommendation">Explore Path →</a>
+        <a class="sr-btn sr-btn-secondary" href="/ai-insights">View Details</a>
+      </div>
+    </div>
+
+    <h2 class="sr-section-title">Current Focus</h2>
+    <div class="sr-focus-grid">
+
+      {% if enrolled_products %}
+        {% for prod in enrolled_products[:2] %}
+        <div class="sr-card sr-focus-card">
+          <div class="sr-focus-card-head">
+            <span class="sr-focus-title">{{ prod.title }}</span>
+          </div>
+          <p class="sr-focus-module">{{ prod.category }} · {{ prod.level or 'All Levels' }}</p>
+          <div class="sr-progress-mini-label"><span>Progress</span><span>{{ loop.index * 35 }}%</span></div>
+          <div class="sr-progress-mini-track"><div class="sr-progress-mini-fill" style="width:{{ loop.index * 35 }}%"></div></div>
+          <a class="sr-btn sr-btn-ghost" href="/course-details?id={{ prod.id }}" data-sr-track-click data-product-id="{{ prod.id }}" data-source="dashboard_focus">▶ Resume Learning</a>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="sr-card sr-focus-card">
+          <div class="sr-focus-card-head">
+            <span class="sr-focus-title">Browse the Catalog</span>
+          </div>
+          <p class="sr-focus-module">Start your first course today</p>
+          <div class="sr-progress-mini-label"><span>Progress</span><span>0%</span></div>
+          <div class="sr-progress-mini-track"><div class="sr-progress-mini-fill" style="width:0%"></div></div>
+          <a class="sr-btn sr-btn-ghost" href="/catalog">▶ Browse Catalog</a>
+        </div>
+      {% endif %}
+
+    </div>
+  </div>
+
+  <div>
+    <div class="sr-card sr-side-card">
+      <h3>Quick Actions</h3>
+      <a class="sr-quick-action" href="/catalog">Explore Catalog <span>›</span></a>
+      <a class="sr-quick-action" href="/my-learning">My Learning <span>›</span></a>
+      <a class="sr-quick-action" href="/ai-insights">AI Insights <span>›</span></a>
+      {% set curr_mode = user.active_mode if user and user.active_mode else (request.session.get('active_mode', 'student') if request else 'student') %}
+      {% if user and user.role == 'admin' %}
+      <a class="sr-quick-action" href="/admin">Admin Panel <span>›</span></a>
+      {% elif curr_mode == 'instructor' %}
+      <a class="sr-quick-action" href="/admin">Instructor Panel <span>›</span></a>
+      {% else %}
+      <button onclick="switchUserMode('instructor')" class="sr-quick-action" style="background:none; border:none; text-align:left; cursor:pointer; width:100%;">Become an Instructor <span>›</span></button>
+      {% endif %}
+    </div>
+
+    <div class="sr-card sr-side-card">
+      <h3>Recent Activity</h3>
+      {% if recent_activity %}
+        {% for act in recent_activity %}
+        <div class="sr-activity-row" style="color:#8a8f9d; font-size:13px;">{{ act.label }}</div>
+        {% endfor %}
+      {% else %}
+        <div class="sr-activity-row" style="color:#8a8f9d; font-size:13px;">No activity yet — browse the catalog to get started.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener('DOMContentLoaded', async () => {
+    try {
+      const res = await fetch('/api/recommendations');
+      const data = await res.json();
+      const reasoning = data.reasoning || {};
+
+      if (reasoning.match_score) {
+        document.getElementById('recMatchBadge').textContent = reasoning.match_score + '% Match';
+      }
+
+      const tagsEl = document.getElementById('recTags');
+      tagsEl.innerHTML = '';
+      const tagSource = (reasoning.top_categories || []).map(([cat]) => cat);
+      (tagSource.length ? tagSource : (reasoning.explicit_interests_used || [])).slice(0, 3).forEach(tag => {
+        const span = document.createElement('span');
+        span.className = 'sr-tag';
+        span.textContent = tag;
+        tagsEl.appendChild(span);
+      });
+
+      if (data.exists) {
+        const main = data.main || data.search_intent;
+        if (main) {
+          document.getElementById('recNarrative').textContent = main.narrative;
+          if (main.products && main.products.length > 0) {
+            const top = main.products[0];
+            document.getElementById('recTitle').textContent = top.title;
+            const startBtn = document.getElementById('recStartBtn');
+            startBtn.href = '/course-details?id=' + top.id;
+            startBtn.dataset.productId = top.id;
+            const dismissBtn = document.getElementById('recDismissBtn');
+            if (dismissBtn) {
+              dismissBtn.style.display = 'inline-block';
+              dismissBtn.dataset.productId = top.id;
+            }
+          }
+        }
+      } else if (reasoning.interest_summary) {
+        document.getElementById('recNarrative').textContent = reasoning.interest_summary;
+      }
+    } catch(err){}
+  });
+</script>
+{% endblock %}

@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Personalize · SmartReco</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+
+<main class="sr-onboard-screen">
+  <div class="sr-onboard-card">
+
+    <div class="sr-onboard-head">
+      <h1 class="sr-onboard-title">What are you interested in?</h1>
+      <p class="sr-onboard-sub">Select the topics you want to focus on. We'll use this to personalize your learning recommendations.</p>
+    </div>
+
+    <form action="/onboarding/interests" method="POST" id="onboardForm">
+      <div class="sr-topic-grid">
+
+        {% for topic in interest_choices %}
+        <div class="sr-topic {% if topic in current_interests %}is-selected{% endif %}" data-topic="{{ topic }}">
+          <input type="checkbox" name="interests" value="{{ topic }}" {% if topic in current_interests %}checked{% endif %} style="display:none">
+          <div class="sr-topic-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M12 2l1.6 4.9L18 8.5l-4.4 1.6L12 15l-1.6-4.9L6 8.5l4.4-1.6L12 2z" fill="currentColor"/></svg>
+          </div>
+          <div class="sr-topic-label">{{ topic }}</div>
+        </div>
+        {% endfor %}
+
+      </div>
+
+      <div style="margin-bottom:24px;">
+        <label style="font-weight:700;font-size:0.9rem;display:block;margin-bottom:8px;">Experience Level (Optional):</label>
+        <select name="experience_level" class="sr-filter-select" style="width:100%;">
+          <option value="">Select Level</option>
+          {% for lvl in experience_level_choices %}
+          <option value="{{ lvl }}" {% if lvl == current_experience_level %}selected{% endif %}>{{ lvl }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="sr-onboard-footer">
+        <span class="sr-progress-label" id="onboardCount">0 selected</span>
+        <div class="sr-progress-track"><div class="sr-progress-fill" style="width:40%"></div></div>
+        <button type="submit" class="sr-btn sr-btn-primary" id="onboardContinue">Continue →</button>
+      </div>
+    </form>
+
+  </div>
+</main>
+
+<script src="/static/script.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const grid = document.querySelector('.sr-topic-grid');
+    grid.querySelectorAll('.sr-topic').forEach(card => {
+      card.addEventListener('click', () => {
+        const checkbox = card.querySelector('input[type="checkbox"]');
+        checkbox.checked = !checkbox.checked;
+        card.classList.toggle('is-selected', checkbox.checked);
+        const count = grid.querySelectorAll('input[type="checkbox"]:checked').length;
+        document.getElementById('onboardCount').textContent = count + ' selected';
+      });
+    });
+  });
+</script>
+</body>
+</html>
