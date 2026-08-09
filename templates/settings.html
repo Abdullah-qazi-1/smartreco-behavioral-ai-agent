@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block title %}Settings · SmartReco{% endblock %}
+
+{% block content %}
+<h1 class="sr-page-title">Account Settings</h1>
+<p class="sr-page-subtitle">Configure your preferences, AI recommendation tracking, and instructor privileges.</p>
+
+<div class="sr-dash-grid">
+  <div>
+    <div class="sr-card" style="padding:24px; margin-bottom:24px;">
+      <h3 style="font-size:1.1rem; margin-top:0; margin-bottom:16px;">AI Recommendation Settings</h3>
+      
+      {% set is_tracking_on = tracking_enabled if tracking_enabled is defined and tracking_enabled is not none else (request.session.get('agent_tracking_enabled', True) if (request and request.session) else True) %}
+      <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid var(--sr-border, #2d3139);">
+        <div>
+          <div style="font-weight:600; color:#fff;">Personalized Behavioral Tracking</div>
+          <div style="font-size:0.85rem; color:var(--ink-500); margin-top:2px;">
+            Allow the AI recommendation engine to adapt suggestions based on your page views and dwell time.
+          </div>
+        </div>
+        <div class="tracking-switch {{ 'on' if is_tracking_on else '' }}" id="settingsTrackingSwitch" onclick="toggleTracking(event)" style="cursor:pointer;">
+          <div class="knob"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sr-card" style="padding:24px;">
+      <h3 style="font-size:1.1rem; margin-top:0; margin-bottom:12px;">Instructor & Creator Mode</h3>
+      <p style="color:var(--ink-500); font-size:0.88rem; margin-bottom:16px;">
+        Want to publish your own courses on SmartReco? Switch to Instructor mode to access course creation tools.
+      </p>
+
+      {% set curr_mode = user.active_mode if user and user.active_mode else (request.session.get('active_mode', 'student') if request else 'student') %}
+      {% if curr_mode == 'instructor' %}
+        <button onclick="switchUserMode('student')" class="sr-btn sr-btn-secondary">
+          Switch to Student Mode
+        </button>
+        <a href="/admin" class="sr-btn sr-btn-primary" style="margin-left:12px;">Go to Instructor Panel →</a>
+      {% else %}
+        <button onclick="switchUserMode('instructor')" class="sr-btn sr-btn-primary">
+          ✨ Become an Instructor
+        </button>
+      {% endif %}
+    </div>
+  </div>
+
+  <div>
+    <div class="sr-card sr-side-card">
+      <h3>Need Help?</h3>
+      <a class="sr-quick-action" href="/profile">View Profile <span>›</span></a>
+      <a class="sr-quick-action" href="/ai-insights">AI Insights <span>›</span></a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let trackingBusy = false;
+async function toggleTracking(e){
+  if (e) e.stopPropagation();
+  if (trackingBusy) return;
+  trackingBusy = true;
+
+  const switchEl = document.getElementById('settingsTrackingSwitch');
+  if (!switchEl) return;
+
+  const currentlyOn = switchEl.classList.contains('on');
+  const nextState = !currentlyOn;
+
+  try {
+    const res = await fetch('/api/tracking-toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: nextState })
+    });
+
+    if(!res.ok){
+      throw new Error('toggle request failed');
+    }
+
+    switchEl.classList.toggle('on', nextState);
+    window.__SMARTRECO_TRACKING_ENABLED__ = nextState;
+  } catch(err){
+    console.error('Failed to update tracking preference:', err);
+  } finally {
+    trackingBusy = false;
+  }
+}
+</script>
+{% endblock %}

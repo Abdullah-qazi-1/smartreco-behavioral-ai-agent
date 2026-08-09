@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}My Learning · SmartReco{% endblock %}
+
+{% block content %}
+<h1 class="sr-page-title">My Learning</h1>
+<p class="sr-page-subtitle">Track your ongoing courses, progress, and certificates.</p>
+
+<div class="sr-dash-grid">
+  <div>
+    <h2 class="sr-section-title">Enrolled Courses ({{ enrolled_products|length }})</h2>
+    {% if enrolled_products %}
+      <div class="sr-focus-grid" style="grid-template-columns: 1fr;">
+        {% for prod in enrolled_products %}
+        <div class="sr-card sr-focus-card" style="margin-bottom:16px;">
+          <div class="sr-focus-card-head" style="display:flex; justify-content:space-between; align-items:center;">
+            <span class="sr-focus-title" style="font-size:1.1rem; font-weight:600;">{{ prod.title }}</span>
+            <span class="sr-badge">{{ prod.category }}</span>
+          </div>
+          <p class="sr-focus-module" style="color:var(--ink-500); font-size:0.88rem; margin:6px 0 12px;">Instructor: {{ prod.instructor_name or 'SmartReco Instructor' }} · {{ prod.level or 'All Levels' }}</p>
+          <div class="sr-progress-mini-label" style="display:flex; justify-content:space-between; font-size:0.82rem; margin-bottom:4px;">
+            <span>Overall Progress</span>
+            <span>{{ (loop.index * 25) % 100 + 15 }}%</span>
+          </div>
+          <div class="sr-progress-mini-track" style="background:var(--sr-border, #2d3139); height:8px; border-radius:4px; overflow:hidden; margin-bottom:14px;">
+            <div class="sr-progress-mini-fill" style="width:{{ (loop.index * 25) % 100 + 15 }}%; background:var(--sr-accent, #6366f1); height:100%;"></div>
+          </div>
+          <div style="display:flex; gap:12px;">
+            <a class="sr-btn sr-btn-primary sr-btn-sm" href="/course-details?id={{ prod.id }}">▶ Continue Learning</a>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="sr-card" style="padding:32px; text-align:center;">
+        <h3 style="margin-top:0;">No courses enrolled yet</h3>
+        <p style="color:var(--ink-500); margin-bottom:20px;">Explore our catalog to start your learning journey.</p>
+        <a class="sr-btn sr-btn-primary" href="/catalog">Browse Catalog →</a>
+      </div>
+    {% endif %}
+  </div>
+
+  <div>
+    <div class="sr-card sr-side-card">
+      <h3>Learning Stats</h3>
+      <div class="sr-engine-row"><span>Enrolled Courses</span><span>{{ enrolled_products|length }}</span></div>
+      <div class="sr-engine-row"><span>Completed</span><span>0</span></div>
+      <div class="sr-engine-row"><span>Certificates</span><span>0</span></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}AI Insights · SmartReco{% endblock %}
+
+{% block content %}
+<div class="sr-insights-grid">
+
+  <div>
+    <div class="sr-card sr-why-card">
+      <div class="sr-insight-head">
+        <span class="sr-insight-tag">✨ WHY WE RECOMMEND THIS FOR YOU</span>
+        <span class="sr-match-badge">{% if reasoning %}{{ reasoning.match_score }}% Match{% else %}98% Match{% endif %}</span>
+      </div>
+      <p class="sr-insight-text">
+        {{ why_narrative or narrative_text or 'Based on your onboarding profile and recent browsing activity, our neural recommendation engine has identified courses aligned with your goals.' }}
+      </p>
+
+      <h3 style="font-family:var(--font-display);font-size:.95rem;margin:18px 0 0">Key Factors Driving This Recommendation</h3>
+      <div class="sr-why-list">
+        <div class="sr-why-item">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 12l5 5L20 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span><strong>Interest Profile Weighting</strong><span>{{ reasoning.interest_summary if reasoning else 'Selected during onboarding or inferred from dwell time.' }}</span></span>
+        </div>
+        <div class="sr-why-item">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 12l5 5L20 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span><strong>Recent Search Signal</strong><span>{% if reasoning %}{{ reasoning.search_summary }}{% elif latest_search %}Connected to your latest search: &ldquo;{{ latest_search.query }}&rdquo;{% else %}No recent catalog searches yet — browse /catalog to refine picks.{% endif %}</span></span>
+        </div>
+      </div>
+
+      <h3 style="font-family:var(--font-display);font-size:.85rem;margin:18px 0 8px;color:var(--ink-500)">Tracked Interest Tags</h3>
+      <div class="sr-tracked-tags">
+        {% if reasoning and reasoning.top_categories %}
+          {% for cat, score in reasoning.top_categories %}
+          <span class="sr-tag">{{ cat }}</span>
+          {% endfor %}
+        {% elif user.interests %}
+          {% for tag in user.interests.split(',') %}
+          <span class="sr-tag">{{ tag.strip().lower() }}</span>
+          {% endfor %}
+        {% else %}
+          <span class="sr-tag">explore catalog</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <h2 class="sr-section-title">★ {% if latest_search %}Top Picks for &ldquo;{{ latest_search.query }}&rdquo;{% else %}Top 3 Curated Picks{% endif %}</h2>
+    <div class="sr-picks-row">
+
+      {% for pick in picked_products[:3] %}
+      <div class="sr-card sr-pick-card" style="position:relative">
+        <button type="button" class="sr-dismiss-btn" data-sr-track-dismiss data-product-id="{{ pick.id }}" data-source="recommendation" title="Not for me" style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,0.4);border:none;color:#fff;border-radius:4px;padding:2px 7px;cursor:pointer;font-size:11px;z-index:2;">✕</button>
+        <div class="sr-pick-thumb"></div>
+        <div class="sr-pick-body">
+          <span class="sr-badge sr-badge-ai">{% if reasoning %}{{ reasoning.match_score }}% Match{% else %}98% Match{% endif %}</span>
+          <h4 class="sr-pick-title">{{ pick.title }}</h4>
+          <p style="font-size:.78rem;color:var(--ink-500);margin:0 0 10px">{{ pick.description[:70] }}...</p>
+          <div class="sr-pick-foot"><span>{{ pick.duration_hours or 12 }} hrs</span><a href="/course-details?id={{ pick.id }}" data-sr-track-click data-product-id="{{ pick.id }}" data-source="recommendation">START →</a></div>
+        </div>
+      </div>
+      {% endfor %}
+
+    </div>
+  </div>
+
+  <div>
+    <div class="sr-card sr-engine-card">
+      <h3 class="sr-eyebrow" style="margin:0 0 10px">Engine Status</h3>
+      <div class="sr-engine-row"><span><span class="sr-status-dot"></span>Model Synced</span><span>v2.4.1</span></div>
+      <div class="sr-engine-row"><span>Data Processing</span><span>{% if reasoning %}{{ reasoning.data_processing_pct }}%{% else %}98%{% endif %}</span></div>
+    </div>
+
+    {% if sidebar_history %}
+    <div class="sr-card sr-search-history-panel">
+      <h3 class="sr-search-history-title">Search History</h3>
+      <p class="sr-search-history-sub">One top pick per past search — scroll for up to 10</p>
+      <div class="sr-search-history-scroll">
+        {% for entry in sidebar_history %}
+        <div class="sr-search-history-item">
+          {% if entry.reason_type == 'instructor_fallback' and entry.reason_message %}
+          <p class="sr-search-history-note">{{ entry.reason_message }}</p>
+          {% endif %}
+          <p class="sr-search-history-line">
+            Since you searched <span class="sr-search-history-query">&ldquo;{{ entry.query }}&rdquo;</span>, you might like:
+          </p>
+          <a class="sr-search-history-course" href="/course-details?id={{ entry.product.id }}" data-sr-track-click data-product-id="{{ entry.product.id }}" data-source="search">
+            {{ entry.product.title }}
+          </a>
+          <span class="sr-search-history-meta">&middot; {{ entry.product.category }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="sr-card sr-explore-card">
+      <div class="sr-explore-icon">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.6"/><path d="M9 12l2 2 4-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <h3 style="font-family:var(--font-display);margin:0 0 8px">Explore the Unknown</h3>
+      <p style="font-size:.85rem;color:var(--ink-500);margin:0 0 16px">The AI constantly evaluates new domains adjacent to your interests.</p>
+      <button class="sr-btn sr-btn-secondary sr-btn-block" id="refreshRecs">↻ Refresh Recommendations</button>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const refreshBtn = document.getElementById('refreshRecs');
+  if(refreshBtn){
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.textContent = 'Generating AI Recommendations...';
+      try {
+        const res = await fetch('/api/recommendations/refresh', { method: 'POST' });
+        const data = await res.json();
+        if(data.status === 'refreshed'){
+          window.location.reload();
+        }
+      } catch(err){
+        refreshBtn.textContent = '↻ Refresh Recommendations';
+      }
+    });
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}My Profile · SmartReco{% endblock %}
+
+{% block content %}
+<h1 class="sr-page-title">User Profile</h1>
+<p class="sr-page-subtitle">Manage your personal information, learning preferences, and account mode.</p>
+
+<div class="sr-dash-grid">
+  <div>
+    <div class="sr-card" style="padding:24px; margin-bottom:24px;">
+      <div style="display:flex; align-items:center; gap:20px; margin-bottom:24px;">
+        <div class="sr-avatar" style="width:64px; height:64px; font-size:1.8rem; display:flex; align-items:center; justify-content:center;">
+          {{ user.name[0] if user and user.name else (user.email[0]|upper if user and user.email else 'U') }}
+        </div>
+        <div>
+          <h2 style="margin:0; font-size:1.4rem;">{{ user.name or 'User' }}</h2>
+          <p style="margin:4px 0 0; color:var(--ink-500); font-size:0.9rem;">{{ user.email }}</p>
+          <div style="margin-top:6px;">
+            <span class="sr-badge" style="background:rgba(99,102,241,0.15); color:#6366f1;">
+              Mode: {{ (user.active_mode or 'student')|capitalize }}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div style="border-top:1px solid var(--sr-border, #2d3139); padding-top:20px;">
+        <h3 style="font-size:1rem; margin-top:0;">Account Mode & Creator Settings</h3>
+        <p style="color:var(--ink-500); font-size:0.88rem; margin-bottom:16px;">
+          Switch to Instructor mode to create, publish, and manage your own courses.
+        </p>
+
+        {% set curr_mode = user.active_mode if user and user.active_mode else (request.session.get('active_mode', 'student') if request else 'student') %}
+        {% if curr_mode == 'instructor' %}
+          <button onclick="switchUserMode('student')" class="sr-btn sr-btn-secondary">
+            Switch to Student Mode
+          </button>
+          <a href="/admin" class="sr-btn sr-btn-primary" style="margin-left:12px;">Open Instructor Panel →</a>
+        {% else %}
+          <button onclick="switchUserMode('instructor')" class="sr-btn sr-btn-primary">
+            ✨ Become an Instructor
+          </button>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="sr-card" style="padding:24px;">
+      <h3 style="font-size:1rem; margin-top:0;">Learning Preferences</h3>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:0.85rem; color:var(--ink-500); display:block; margin-bottom:6px;">Interests</label>
+        <div class="sr-tracked-tags">
+          {% if user.interests %}
+            {% for tag in user.interests.split(',') %}
+            <span class="sr-tag">{{ tag.strip() }}</span>
+            {% endfor %}
+          {% else %}
+            <span class="sr-tag">None set yet</span>
+          {% endif %}
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px;">
+        <label style="font-size:0.85rem; color:var(--ink-500); display:block; margin-bottom:4px;">Experience Level</label>
+        <div style="font-weight:500; color:#fff;">{{ user.experience_level or 'Not specified' }}</div>
+      </div>
+
+      <a href="/onboarding/interests" class="sr-btn sr-btn-secondary sr-btn-sm">Update Interests</a>
+    </div>
+  </div>
+
+  <div>
+    <div class="sr-card sr-side-card">
+      <h3>Quick Links</h3>
+      <a class="sr-quick-action" href="/my-learning">My Enrolled Courses <span>›</span></a>
+      <a class="sr-quick-action" href="/settings">Account Settings <span>›</span></a>
+      <a class="sr-quick-action" href="/ai-insights">AI Recommendations <span>›</span></a>
+    </div>
+  </div>
+</div>
+{% endblock %}
