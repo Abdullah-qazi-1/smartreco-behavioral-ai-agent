@@ -25,7 +25,7 @@ Every product create/update/delete writes to **SQLite** (source of truth) and **
 
 **Behavioral Tracking** — batched + debounced client tracker, `sendBeacon` flush on tab close, bot-noise filter (<0.3s duplicate drop), scroll-depth milestones (captured client-side, persisted server-side, and factored into category scoring via `services/scoring_weights.EVENT_BASE_WEIGHTS["scroll_depth"]`), opt-in/out tracking preference.
 
-**Agentic Recommendation Engine** — multi-factor scoring engine, hybrid RAG retrieval (category + level aware), trigger-gated generation (5-event threshold + cooldown), 30s search-recommendation cache (`services/recommendation_cache.py` → `CACHE_TTL_SECONDS`).
+**Agentic Recommendation Engine** — multi-factor scoring engine, hybrid RAG retrieval (category + level aware), trigger-gated generation (5-event threshold + cooldown), 10-minute recommendation response cache (`services/recommendation_cache.py` → `CACHE_TTL_SECONDS`).
 
 **Bonus (Level 6)** — LangGraph structured agent ✅ · scheduled daily digest via real cron (APScheduler, email + Telegram) ✅ · scheduled vector self-healing ✅ · LangSmith tracing ✅ · retrieval re-ranking ✅ · LLM grounding/hallucination guard ✅.
 
@@ -110,7 +110,7 @@ SmartReco calculates per-category interest scores using a composite scoring form
 - **Conflicting Interest 3× Dominance Rule**: If the top category score is $> 3\times$ the second category score, retrieval isolates the dominant category. Otherwise, the engine blends candidates from the top 2 categories.
 
 ### 2. Trigger & Caching (`services/trigger.py`)
-`should_regenerate(db, user)` only fires the agent once 5+ new signal events have accumulated since the last recommendation, plus a cooldown window — no LLM call per click. Search recommendations are cached in-memory (30s TTL, `services/recommendation_cache.py` → `CACHE_TTL_SECONDS`).
+`should_regenerate(db, user)` only fires the agent once 5+ new signal events have accumulated since the last recommendation, plus a cooldown window — no LLM call per click. The `GET /api/recommendations` response is cached in-memory per user (10-minute TTL, `services/recommendation_cache.py` → `CACHE_TTL_SECONDS`), keyed to a fingerprint of the user's latest `Recommendation` row — so it's evicted immediately on any real change, and the TTL only bounds how long an unchanged payload is reused for repeat fetches.
 
 ### 3. LangGraph Nodes (`services/agent_graph.py`)
 ```
@@ -182,6 +182,30 @@ Only `MESH_API_KEY` is required for the AI features to produce real (non-fallbac
 ## 🔎 Observability
 
 `langsmith`'s `@traceable` decorator is applied to all six LangGraph nodes — `analyze_activity`, `decide_retrieval`, `retrieve`, `evaluate_retrieval_quality`, `refine`, and `generate` — plus the underlying `generate_narrative()` LLM call in `services/llm_client.py`. Enabling `LANGCHAIN_TRACING_V2=true` + `LANGCHAIN_API_KEY` (and optionally `LANGCHAIN_PROJECT`) gives a full node-by-node trace tree in LangSmith for every recommendation run — each node's input/output and timing, not just the final LLM call. If `langsmith` isn't installed, `@traceable` no-ops to a plain pass-through (same pattern as the Mesh degradation paths above), so tracing is purely additive and never a hard dependency.
+
+## 🎥 Live Demo: Triggering the Daily Digest
+
+The daily digest normally fires on its own via APScheduler cron at `DIGEST_SCHEDULE_HOUR:DIGEST_SCHEDULE_MINUTE` UTC (see `services/scheduler.py`). For a demo/proof video, you don't have to wait for that scheduled hour — you can fire the exact same job on demand.
+
+1. **Configure delivery channels in `.env`** (at least one of these; both are optional independently):
+   - Email (SMTP): `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `DIGEST_FROM_EMAIL`
+   - Telegram: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
+2. **Log in as an admin** and open `/admin` — scroll to the **"Recommendation Analytics & System Health"** panel, then the **"Proactive Daily Digest"** card.
+3. **Click "Check Readiness"** first. This calls `GET /api/admin/digest-readiness` and reports, without sending anything:
+   - whether SMTP / Telegram are configured (booleans only — secrets are never returned)
+   - how many users have activity today (i.e. would be picked up by the job)
+   - how many of those already have a saved recommendation vs. would need one generated on the fly
+4. **Click "Trigger Digest Now"** to actually send. This calls `POST /api/admin/run-digest`, which runs the real `run_daily_digest_job()` — the identical function the cron job calls — and returns a JSON summary (`processed_users`, `emails_sent`, `telegrams_sent`, `errors`), shown directly in the panel for the recording.
+5. **Keep the terminal visible** while recording — `send_email_digest` / `send_telegram_digest` log `DIGEST SENT [email] recipient=...` / `DIGEST SENT [telegram] recipient=...` (or `DIGEST FAILED [...] recipient=...` on failure) at INFO level, so each delivery attempt is visible in the uvicorn console as it happens.
+
+Both endpoints are admin-only (same `user.role != "admin"` check used by the other `/api/admin/*` routes) — they are not reachable from instructor or student accounts.
+
+You can also call these directly, e.g. for scripting the demo:
+
+```bash
+curl -s http://localhost:8000/api/admin/digest-readiness -b "session=<your_admin_session_cookie>"
+curl -s -X POST http://localhost:8000/api/admin/run-digest -b "session=<your_admin_session_cookie>"
+```
 
 ## Responsible Use
 
