@@ -156,23 +156,87 @@ def format_digest(db: Session, user: User, rec: Recommendation) -> Tuple[str, st
     text_lines.extend(["", "Happy Learning!", "SmartReco AI Agent"])
     plain_text = "\n".join(text_lines)
 
-    # HTML format
-    html_items = "".join(
-        f"<li><strong>{p.title}</strong> — Rating: {p.rating or 'N/A'} ⭐ ({p.level or 'All'})</li>"
-        for p in products
-    )
-    html_digest = f"""
-    <html>
-      <body style="font-family: sans-serif; color: #333; line-height: 1.6;">
-        <h2>SmartReco Daily Learning Digest</h2>
-        <p>Hi <strong>{getattr(user, 'name', None) or 'Learner'}</strong>,</p>
-        <p>{narrative}</p>
-        <h3>Recommended for You:</h3>
-        <ul>{html_items}</ul>
-        <p style="margin-top: 20px; color: #777; font-size: 12px;">Sent automatically by SmartReco Proactive Agent.</p>
-      </body>
-    </html>
-    """
+    # HTML format — branded card layout matching the SmartReco app palette
+    # (indigo/violet gradient, rounded cards) instead of a bare unstyled block.
+    level_badge_colors = {
+        "beginner": ("#EAFBF1", "#16A34A"),
+        "intermediate": ("#FEF6E7", "#B45309"),
+        "advanced": ("#FBE9EA", "#DC2626"),
+    }
+
+    def _course_row(p) -> str:
+        level = (p.level or "All").strip()
+        bg, fg = level_badge_colors.get(level.lower(), ("#EEEBFB", "#4F46E5"))
+        rating = p.rating or "N/A"
+        return f"""
+        <tr>
+          <td style="padding:14px 16px;border:1px solid #E4E1F5;border-radius:12px;display:block;margin-bottom:10px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="font-family:'Segoe UI',Helvetica,Arial,sans-serif;">
+                  <div style="font-size:15px;font-weight:600;color:#1E1B3C;margin-bottom:6px;">{p.title}</div>
+                  <span style="display:inline-block;background:{bg};color:{fg};font-size:11px;font-weight:600;padding:3px 10px;border-radius:999px;margin-right:6px;">{level}</span>
+                  <span style="display:inline-block;color:#6B6890;font-size:12px;font-weight:600;">★ {rating}</span>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>"""
+
+    html_rows = "".join(_course_row(p) for p in products) if products else """
+        <tr><td style="padding:14px 16px;color:#6B6890;font-size:13px;">No new recommendations today — check back tomorrow!</td></tr>"""
+
+    display_name = getattr(user, "name", None) or "Learner"
+
+    html_digest = f"""<!DOCTYPE html>
+<html>
+  <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+  <body style="margin:0;padding:0;background:#F3F1FC;font-family:'Segoe UI',Helvetica,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F3F1FC;padding:32px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:18px;overflow:hidden;box-shadow:0 8px 24px rgba(63,44,140,0.10);">
+            <!-- Header -->
+            <tr>
+              <td style="background:linear-gradient(135deg,#4F46E5,#7C3AED);padding:28px 32px;">
+                <div style="font-size:20px;font-weight:700;color:#FFFFFF;">SmartReco</div>
+                <div style="font-size:13px;color:#EEEBFB;margin-top:2px;">Your Daily Learning Digest</div>
+              </td>
+            </tr>
+            <!-- Greeting -->
+            <tr>
+              <td style="padding:28px 32px 8px;">
+                <p style="margin:0 0 4px;font-size:15px;color:#1E1B3C;">Hi <strong>{display_name}</strong>,</p>
+                <p style="margin:0;font-size:14px;color:#6B6890;line-height:1.6;">{narrative}</p>
+              </td>
+            </tr>
+            <!-- Courses -->
+            <tr>
+              <td style="padding:16px 32px 8px;">
+                <div style="font-size:13px;font-weight:700;color:#1E1B3C;text-transform:uppercase;letter-spacing:0.03em;margin-bottom:12px;">Recommended for you</div>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  {html_rows}
+                </table>
+              </td>
+            </tr>
+            <!-- CTA -->
+            <tr>
+              <td style="padding:8px 32px 32px;">
+                <a href="#" style="display:inline-block;background:linear-gradient(135deg,#4F46E5,#7C3AED);color:#FFFFFF;text-decoration:none;font-size:14px;font-weight:600;padding:12px 24px;border-radius:10px;">Open SmartReco →</a>
+              </td>
+            </tr>
+            <!-- Footer -->
+            <tr>
+              <td style="padding:20px 32px;background:#F3F1FC;text-align:center;">
+                <p style="margin:0;font-size:12px;color:#A6A3C4;">Sent automatically by the SmartReco Proactive Agent. Happy learning! 🎓</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>"""
 
     # Telegram Markdown format
     tg_lines = [
