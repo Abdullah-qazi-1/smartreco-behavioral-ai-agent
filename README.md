@@ -123,9 +123,9 @@ SmartReco calculates per-category interest scores using a composite scoring form
 ## 🧪 Testing
 
 ```bash
-python tests/smoke_test.py              # full backend suite, no live Mesh key needed — 33 assertions across 11 sections,
-                                         # including concurrent dual-write race conditions (Section 10) and
-                                         # a Mesh key invalidated mid-request (Section 11)
+python tests/smoke_test.py   # 44 assertions across 11 sections,
+                              # including concurrent dual-write race conditions (Section 10) and
+                              # a Mesh key invalidated mid-request (Section 11)
 python scripts/eval_recommendations.py  # recommendation quality: single-category, mixed-signal, cold-start profiles
 ```
 
@@ -146,6 +146,30 @@ To test the daily digest without waiting for the scheduled hour: `POST /api/admi
 | `GET` / `POST` | `/api/admin/analytics`, `/api/admin/reconcile-vectors` | **Admin only** | Analytics summary / manual vector self-heal |
 | `GET` | `/metrics` | **Admin only** | Operational metrics (LLM stats, trigger fire rates) |
 | `GET` | `/health` | Public | System health check (SQLite, ChromaDB, LLM provider) |
+
+### Health Check Example
+
+`GET /health` returns a real-time status of all core dependencies — no auth required:
+
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-08-10T07:59:00.571204+00:00",
+  "checks": {
+    "database": { "status": "ok", "engine": "sqlite" },
+    "chromadb": { "status": "ok", "collection_count": 400 },
+    "llm": {
+      "status": "ok",
+      "provider": "mesh",
+      "model": "openai/gpt-4o",
+      "configured": true,
+      "embedding_backend": "mesh"
+    }
+  }
+}
+```
+
+Verify locally: `curl http://localhost:8000/health`
 
 ---
 
