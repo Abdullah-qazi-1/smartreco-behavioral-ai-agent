@@ -40,6 +40,53 @@ if not _session_secret:
         "Do not use hardcoded default secrets in production."
     )
 
+_startup_logger = logging.getLogger("smartreco.startup")
+
+
+def _validate_optional_env_at_startup():
+    """
+    Non-fatal environment sanity checks, logged once at boot. MESH_API_KEY is
+    intentionally NOT required here (and never made fatal) — see the
+    "Resilience — What Happens Without Mesh" README section: the whole point of
+    that design is that the app must still start and serve non-AI paths without
+    it. What IS worth a loud startup WARNING (not a crash) is a key that's
+    PRESENT but almost certainly malformed/pasted-wrong, since that's a much
+    harder failure mode to notice — every request "succeeds" at the Python level
+    and then fails deep inside an HTTP call to Mesh, which is a worse debugging
+    experience than catching the typo before the first request ever comes in.
+    """
+    mesh_key = os.getenv("MESH_API_KEY", "").strip()
+    if not mesh_key:
+        _startup_logger.warning(
+            "MESH_API_KEY is not set — app will boot normally, but every AI "
+            "feature (recommendations, narrative generation, semantic search) "
+            "will run in its degraded fallback mode until a key is configured. "
+            "See README 'Resilience' section."
+        )
+    elif not mesh_key.startswith("rsk_"):
+        # Per the challenge's own Mesh API docs, a real Mesh key always starts
+        # with "rsk_" — a key that doesn't match that shape is almost certainly
+        # a copy-paste mistake (wrong env var, a raw OpenAI key, trailing/leading
+        # whitespace not fully stripped, etc.), not a valid-but-unusual key.
+        _startup_logger.warning(
+            "MESH_API_KEY is set but does not start with the expected 'rsk_' "
+            "prefix — this is very likely a copy-paste mistake (wrong key "
+            "pasted, or a raw provider key instead of a Mesh key) rather than a "
+            "valid key, and Mesh API calls will probably fail with an auth "
+            "error at request time."
+        )
+
+    langsmith_tracing = os.getenv("LANGCHAIN_TRACING_V2", "").strip().lower() == "true"
+    if langsmith_tracing and not os.getenv("LANGCHAIN_API_KEY", "").strip():
+        _startup_logger.warning(
+            "LANGCHAIN_TRACING_V2=true but LANGCHAIN_API_KEY is not set — "
+            "LangSmith tracing will silently no-op instead of sending traces "
+            "(see services/agent_graph.py's @traceable no-op fallback)."
+        )
+
+
+_validate_optional_env_at_startup()
+
 app = FastAPI(title="SmartReco")
 
 app.add_middleware(GZipMiddleware, minimum_size=500)
