@@ -85,10 +85,10 @@ def send_email_digest(to_email: str, subject: str, body_text: str, body_html: st
             server.login(smtp_user, smtp_pass)
             server.sendmail(from_email, [to_email], msg.as_string())
 
-        logger.info("Successfully sent email digest to %s", to_email)
+        logger.info("DIGEST SENT [email] recipient=%s subject=%r", to_email, subject)
         return True
     except Exception as exc:
-        logger.error("Failed sending email digest to %s: %s", to_email, exc, exc_info=True)
+        logger.error("DIGEST FAILED [email] recipient=%s: %s", to_email, exc, exc_info=True)
         return False
 
 
@@ -109,13 +109,16 @@ def send_telegram_digest(chat_id: str, message: str) -> bool:
     try:
         res = requests.post(url, json=payload, timeout=10)
         if res.status_code == 200:
-            logger.info("Successfully sent Telegram digest to chat %s", chat_id)
+            logger.info("DIGEST SENT [telegram] recipient=%s", chat_id)
             return True
         else:
-            logger.error("Telegram API error status=%d: %s", res.status_code, res.text)
+            logger.error(
+                "DIGEST FAILED [telegram] recipient=%s status=%d: %s",
+                chat_id, res.status_code, res.text,
+            )
             return False
     except Exception as exc:
-        logger.error("Failed sending Telegram digest to chat %s: %s", chat_id, exc, exc_info=True)
+        logger.error("DIGEST FAILED [telegram] recipient=%s: %s", chat_id, exc, exc_info=True)
         return False
 
 
