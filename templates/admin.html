@@ -203,6 +203,21 @@
       </ul>
     </div>
   </div>
+
+  {% if is_admin %}
+  <div class="sr-l5-analytics-card" style="margin-top:16px;">
+    <h3 class="sr-l5-card-title">Proactive Daily Digest</h3>
+    <p class="sr-admin-section-sub" style="margin:4px 0 12px;">
+      Manually fire the same daily-digest job APScheduler runs on its own cron
+      schedule — useful for demos instead of waiting for the scheduled hour.
+    </p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button class="sr-btn sr-btn-secondary" type="button" onclick="checkDigestReadiness()">Check Readiness</button>
+      <button class="sr-btn sr-btn-primary" type="button" onclick="triggerDigestNow()">Trigger Digest Now</button>
+    </div>
+    <pre id="digestResultBox" style="margin-top:12px;padding:12px;background:var(--surface-2,#111);border-radius:8px;font-size:12px;white-space:pre-wrap;display:none;"></pre>
+  </div>
+  {% endif %}
 </section>
 
 <!-- Add Course Modal -->
@@ -342,6 +357,38 @@
         systemDot.textContent = '● System Degraded';
         systemDot.className = 'sr-pill sr-pill-warn';
       }
+    }
+  }
+
+  function showDigestResult(label, data, isError) {
+    const box = document.getElementById('digestResultBox');
+    if (!box) return;
+    box.style.display = 'block';
+    box.style.borderLeft = '3px solid ' + (isError ? 'var(--danger, #e5484d)' : 'var(--success, #30a46c)');
+    box.textContent = label + '\n' + JSON.stringify(data, null, 2);
+  }
+
+  async function checkDigestReadiness() {
+    try {
+      const res = await fetch('/api/admin/digest-readiness');
+      const data = await res.json();
+      showDigestResult(res.ok ? 'Readiness check:' : 'Readiness check failed:', data, !res.ok);
+    } catch (err) {
+      showDigestResult('Readiness check failed:', { error: String(err) }, true);
+    }
+  }
+
+  async function triggerDigestNow() {
+    const btn = event && event.target;
+    if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+    try {
+      const res = await fetch('/api/admin/run-digest', { method: 'POST' });
+      const data = await res.json();
+      showDigestResult(res.ok ? 'Digest triggered — summary:' : 'Digest trigger failed:', data, !res.ok);
+    } catch (err) {
+      showDigestResult('Digest trigger failed:', { error: String(err) }, true);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'Trigger Digest Now'; }
     }
   }
 
