@@ -10,6 +10,16 @@ Validates core backend contracts:
 6. Cold start safety: brand new user handling without runtime crashes.
 7. Vector-store self-healing: reconcile_vector_store() actually repairs a
    product whose Chroma/Mesh dual-write previously failed.
+8. Mesh entirely unavailable: nothing crashes anywhere in the app.
+9. (see above) Vector-store self-healing.
+10. Concurrent dual-write races: two real threads/sessions creating
+    different products, and two threads updating the SAME product,
+    simultaneously — no lost writes, no orphaned vector entries, no
+    corrupted/interleaved row on last-write-wins.
+11. Mesh key invalidated mid-request: a multi-step operation where the key
+    is valid for the first call but starts failing on the next — the
+    already-committed SQL write is never rolled back just because a later
+    Mesh call in the same flow degrades.
 
 Runs standalone without requiring a live Mesh API key. Returns exit code 0 on success.
 """
@@ -415,6 +425,214 @@ def run_smoke_test():
             delete_product(db, broken_product.id)
     except Exception as exc:
         report_assertion("Reconcile", False, f"Reconcile test raised exception: {exc}")
+
+    # -------------------------------------------------------------
+    # Section 10: Concurrent Dual-Write Race Conditions
+    # -------------------------------------------------------------
+    # Two real OS threads, each with its OWN SQLAlchemy Session (mirroring
+    # how FastAPI's get_db() hands every request its own session), hit the
+    # dual-write path at the same time: (a) two DIFFERENT products created
+    # concurrently, and (b) the SAME product updated concurrently from both
+    # threads. This is checking for the two failure modes that matter in
+    # production: lost writes (SQL side) and orphaned/mismatched vector
+    # entries (Chroma side) when requests overlap.
+    print("\n[10] Concurrent Dual-Write Race Conditions")
+    try:
+        import threading
+
+        race_marker = f"RaceMarker{int(datetime.now().timestamp())}"
+        created_ids = {}
+        create_errors = []
+
+        def _concurrent_create(label, title_suffix):
+            thread_db = SessionLocal()
+            try:
+                p = create_product(
+                    thread_db,
+                    title=f"{race_marker} {title_suffix}",
+                    description="Concurrency test product.",
+                    category="DevOps",
+                    price=0.0,
+                    level="Beginner",
+                    skills="race,condition",
+                )
+                created_ids[label] = p.id
+            except Exception as e:
+                create_errors.append(e)
+            finally:
+                thread_db.close()
+
+        # NOTE: unittest.mock.patch() context managers are NOT thread-safe when
+        # two threads simultaneously enter/exit a `with patch(...)` on the SAME
+        # target — one thread's exit can restore the real embed_text() while the
+        # other thread is still mid-call, causing a spurious (test-only, not a
+        # real production) failure. Patch ONCE around both threads' full
+        # lifetime instead of once per thread.
+        with patch("database.chroma_client.embed_text", return_value=[0.2] * 384):
+            t1 = threading.Thread(target=_concurrent_create, args=("A", "Product Alpha"))
+            t2 = threading.Thread(target=_concurrent_create, args=("B", "Product Beta"))
+            t1.start(); t2.start()
+            t1.join(); t2.join()
+
+        report_assertion(
+            "Concurrent Create — no exceptions",
+            len(create_errors) == 0,
+            f"two simultaneous create_product() calls from separate threads/sessions "
+            f"completed without raising ({len(create_errors)} errors)",
+        )
+        report_assertion(
+            "Concurrent Create — no lost write",
+            "A" in created_ids and "B" in created_ids and created_ids["A"] != created_ids["B"],
+            f"both concurrent creates got distinct product IDs (A={created_ids.get('A')}, "
+            f"B={created_ids.get('B')}) — neither write was silently dropped or overwrote the other",
+        )
+
+        both_ids = list(created_ids.values())
+        # Check the MOST RECENT log per product_id specifically (not a raw count
+        # filtered by ID alone) — SQLite reuses freed rowids after earlier
+        # sections' deletes, so a plain count-by-id can pick up unrelated older
+        # rows for the same numeric ID and give a misleadingly large number.
+        latest_statuses = {}
+        for pid in both_ids:
+            latest = (
+                db.query(ChromaSyncLog)
+                .filter(ChromaSyncLog.product_id == pid)
+                .order_by(ChromaSyncLog.id.desc())
+                .first()
+            )
+            latest_statuses[pid] = latest.status if latest else None
+        both_synced = all(status == "synced" for status in latest_statuses.values())
+        report_assertion(
+            "Concurrent Create — both vector-synced",
+            both_synced,
+            f"both concurrently-created products' MOST RECENT ChromaSyncLog entry is "
+            f"'synced' ({latest_statuses}) — no orphaned/failed vector write from the race",
+        )
+
+        # (b) Same-row concurrent UPDATE — last-write-wins, no partial/corrupted row.
+        with patch("database.chroma_client.embed_text", return_value=[0.2] * 384):
+            base_product = create_product(
+                db,
+                title=f"{race_marker} Shared Row",
+                description="Original description.",
+                category="Data Science",
+                price=10.0,
+                level="Intermediate",
+                skills="shared,row",
+            )
+        shared_id = base_product.id
+        update_errors = []
+
+        def _concurrent_update(new_title):
+            thread_db = SessionLocal()
+            try:
+                product_service.update_product(thread_db, shared_id, title=new_title)
+            except Exception as e:
+                update_errors.append(e)
+            finally:
+                thread_db.close()
+
+        with patch("database.chroma_client.embed_text", return_value=[0.2] * 384):
+            u1 = threading.Thread(target=_concurrent_update, args=(f"{race_marker} Updated By Thread 1",))
+            u2 = threading.Thread(target=_concurrent_update, args=(f"{race_marker} Updated By Thread 2",))
+            u1.start(); u2.start()
+            u1.join(); u2.join()
+
+        db.expire_all()
+        final_product = db.query(Product).filter(Product.id == shared_id).first()
+        report_assertion(
+            "Concurrent Update — no exceptions",
+            len(update_errors) == 0,
+            f"two simultaneous update_product() calls on the SAME row from separate "
+            f"threads/sessions completed without raising ({len(update_errors)} errors)",
+        )
+        report_assertion(
+            "Concurrent Update — clean last-write-wins",
+            final_product is not None
+            and final_product.title in (
+                f"{race_marker} Updated By Thread 1",
+                f"{race_marker} Updated By Thread 2",
+            ),
+            f"final row title is one of the two full concurrent writes, not a "
+            f"corrupted/interleaved mix — got: {final_product.title if final_product else None!r}",
+        )
+
+        with patch("database.chroma_client.embed_text", return_value=[0.2] * 384):
+            for pid in both_ids + [shared_id]:
+                delete_product(db, pid)
+    except Exception as exc:
+        report_assertion("Concurrent Dual-Write", False, f"Concurrency test raised exception: {exc}")
+
+    # -------------------------------------------------------------
+    # Section 11: Mesh Key Invalidated Mid-Request
+    # -------------------------------------------------------------
+    # Section 8 already covers MESH_API_KEY being empty for the WHOLE
+    # request. This section covers the narrower, more realistic case: the
+    # key is valid when a multi-step operation STARTS (e.g. a key gets
+    # revoked, rate-limited, or a Mesh outage begins mid-flight) but fails
+    # partway through — verifying no partial/half-written state and that the
+    # already-committed SQL side is never rolled back just because the
+    # LLM/embedding call that came after it failed.
+    print("\n[11] Mesh Key Invalidated Mid-Request")
+    try:
+        midreq_marker = f"MidReqMarker{int(datetime.now().timestamp())}"
+
+        # embed_text succeeds on the FIRST call (product create), then starts
+        # raising as if the key was revoked/rate-limited immediately after.
+        call_state = {"count": 0}
+
+        def _embed_then_fail(*args, **kwargs):
+            call_state["count"] += 1
+            if call_state["count"] == 1:
+                return [0.3] * 384
+            raise RuntimeError("401 Unauthorized — Mesh key invalid or revoked")
+
+        with patch("database.chroma_client.embed_text", side_effect=_embed_then_fail):
+            midreq_product = create_product(
+                db,
+                title=f"{midreq_marker} Kubernetes Basics",
+                description="Learn container orchestration.",
+                category="DevOps",
+                price=0.0,
+                level="Beginner",
+                skills="kubernetes,devops",
+            )
+            # Second call in the same "session" — key now behaves as revoked.
+            failed_update = product_service.update_product(
+                db, midreq_product.id, description="Updated after key revocation."
+            )
+
+        report_assertion(
+            "Mid-request key failure — first write unaffected",
+            midreq_product is not None and midreq_product.id is not None,
+            "the product created BEFORE the simulated mid-request key failure still "
+            "committed successfully to SQL",
+        )
+        report_assertion(
+            "Mid-request key failure — later SQL write not rolled back",
+            failed_update is not None and failed_update.description == "Updated after key revocation.",
+            "the SQL update that happened AFTER the key started failing still committed "
+            "(only the vector/Chroma half degraded, per the resilience design) — "
+            "the failure never rolled back or corrupted the SQL row",
+        )
+        failed_log = (
+            db.query(ChromaSyncLog)
+            .filter(ChromaSyncLog.product_id == midreq_product.id, ChromaSyncLog.action == "upsert")
+            .order_by(ChromaSyncLog.id.desc())
+            .first()
+        )
+        report_assertion(
+            "Mid-request key failure — degraded write is visibly logged",
+            failed_log is not None and failed_log.status == "failed",
+            "the update that happened while the key was 'revoked' mid-request is recorded "
+            "as status='failed' in ChromaSyncLog — not silently dropped, so the hourly "
+            "reconcile job will pick it up",
+        )
+
+        with patch("database.chroma_client.embed_text", return_value=[0.3] * 384):
+            delete_product(db, midreq_product.id)
+    except Exception as exc:
+        report_assertion("Mesh Mid-Request Failure", False, f"Mid-request key test raised exception: {exc}")
 
     print("\n" + "=" * 60)
     print(f" SMOKE TEST SUMMARY: {passed_count} PASSED, {failed_count} FAILED")
