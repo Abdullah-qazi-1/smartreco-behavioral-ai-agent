@@ -1,4 +1,5 @@
 import os
+import logging
 from fastapi import FastAPI, Request, Depends
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -20,6 +21,17 @@ from services.tracking_prefs import is_agent_tracking_enabled
 from services.rate_limit import check_rate_limit
 
 load_dotenv()
+
+# Without this, the "smartreco.*" module loggers (services/scheduler.py,
+# services/llm_client.py, etc.) inherit Python's default root level of
+# WARNING, so their logger.info(...) calls — including the digest-sent /
+# digest-failed lines used for demo-video proof in the terminal — are
+# silently dropped before they ever reach uvicorn's console output.
+# LOG_LEVEL is overridable via .env if a quieter/louder default is wanted.
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 _session_secret = os.getenv("SESSION_SECRET", "").strip()
 if not _session_secret:
