@@ -16,6 +16,8 @@ from services.tracking_prefs import is_agent_tracking_enabled
 
 logger = logging.getLogger("smartreco.products")
 router = APIRouter()
+
+MAX_SEARCH_QUERY_LENGTH = 200  # see rationale at the /api/search route below
 templates = Jinja2Templates(directory="templates")
 
 
@@ -111,7 +113,14 @@ def search_products(q: str = "", request: Request = None, db: Session = Depends(
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
-    if not q.strip():
+    # MAX_SEARCH_QUERY_LENGTH: an unbounded query string is wasted cost either way
+    # it's handled — a huge string sent to Mesh for embedding burns tokens for no
+    # retrieval benefit, and the keyword_fallback.py LIKE-query path scans just as
+    # uselessly on garbage-length input. No real search intent needs more than a
+    # couple hundred characters.
+    q = q.strip()[:MAX_SEARCH_QUERY_LENGTH]
+
+    if not q:
         products = product_service.get_all_products(db)
     else:
         products = product_service.semantic_search_products(db, q, user=user)
