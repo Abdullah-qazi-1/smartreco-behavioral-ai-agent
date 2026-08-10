@@ -15,10 +15,21 @@ ChromaSyncLog(status="failed") for visibility instead of failing silently.
 """
 import os
 import logging
+import threading
 import chromadb
 from openai import OpenAI
 
 logger = logging.getLogger("smartreco.chroma_client")
+
+# ChromaDB's SQLite-backed PersistentClient is not guaranteed safe for
+# concurrent writes to the SAME collection from multiple threads at once —
+# under real concurrency (e.g. two admin requests dual-writing products at
+# the same moment) one of the upsert/delete calls can intermittently fail
+# even though the embedding itself succeeded. A single process-wide lock
+# around the actual Chroma write calls serializes them cheaply (embeddings
+# generation, the slow part, still happens outside the lock) and eliminates
+# the race without needing a different Chroma deployment mode.
+_write_lock = threading.Lock()
 
 MESH_BASE_URL = os.getenv("MESH_BASE_URL", "https://api.meshapi.ai/v1")
 MESH_EMBED_MODEL = os.getenv("MESH_EMBED_MODEL", "openai/text-embedding-3-small")
@@ -94,30 +105,32 @@ def upsert_product(
         f"{description}"
     )
 
-    embedding = embed_text(text)
+    embedding = embed_text(text)  # slow network call — deliberately outside the lock
 
-    _collection.upsert(
-        ids=[str(product_id)],
-        embeddings=[embedding],
-        documents=[text],
-        metadatas=[{
-            "product_id": product_id,
-            "title": title,
-            "category": category,
-            "level": level or "",
-            "price": price,
-            "skills": skills or "",
-            "instructor_name": instructor_name or "",
-            "rating": rating if rating is not None else 0.0,
-            "num_ratings": num_ratings if num_ratings is not None else 0,
-            "enrolled_students": enrolled_students if enrolled_students is not None else 0,
-            "duration_hours": duration_hours if duration_hours is not None else 0.0,
-        }],
-    )
+    with _write_lock:
+        _collection.upsert(
+            ids=[str(product_id)],
+            embeddings=[embedding],
+            documents=[text],
+            metadatas=[{
+                "product_id": product_id,
+                "title": title,
+                "category": category,
+                "level": level or "",
+                "price": price,
+                "skills": skills or "",
+                "instructor_name": instructor_name or "",
+                "rating": rating if rating is not None else 0.0,
+                "num_ratings": num_ratings if num_ratings is not None else 0,
+                "enrolled_students": enrolled_students if enrolled_students is not None else 0,
+                "duration_hours": duration_hours if duration_hours is not None else 0.0,
+            }],
+        )
 
 
 def delete_product(product_id: int):
-    _collection.delete(ids=[str(product_id)])
+    with _write_lock:
+        _collection.delete(ids=[str(product_id)])
 
 
 def semantic_search(query: str, top_k: int = 8, category: str = None, level: str = None):
