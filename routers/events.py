@@ -45,6 +45,41 @@ VALID_EVENT_TYPES = {"view", "search", "click", "time_spent", "dismiss", "enroll
 # Known Limitations).
 MAX_EVENTS_PER_BATCH = 50  # safety cap — one browser batch should never be huge
 
+# --- Input validation limits (explicit, enforced, and documented in README) ---
+# A batch cap alone (MAX_EVENTS_PER_BATCH above) does not protect against a single
+# request with an oversized BODY (e.g. one client sending a 50MB JSON blob) — the
+# body is still fully read/parsed into memory by request.json() before any
+# per-event truncation happens. These two limits close that gap:
+MAX_REQUEST_BODY_BYTES = 256 * 1024       # 256 KB — generous for a 50-event batch
+                                            # of small view/search/click events;
+                                            # rejects anything wildly oversized
+                                            # (e.g. abuse or a client-side bug)
+                                            # BEFORE it's parsed, via Content-Length.
+MAX_METADATA_JSON_CHARS = 2000            # per-event metadata dict, once
+                                            # json.dumps()'d — a normal event's
+                                            # metadata (search query, dwell seconds,
+                                            # scroll %) is well under 200 chars; this
+                                            # caps any single event from ballooning
+                                            # the events table with unbounded text.
+
+
+def _content_length_exceeds(request: Request, max_bytes: int) -> bool:
+    """
+    Cheap pre-check using the Content-Length header, so an oversized request is
+    rejected BEFORE request.json() reads/parses the whole body into memory. Not a
+    substitute for a reverse-proxy body-size limit in a real deployment (a client
+    could omit/lie about Content-Length and stream a large chunked body), but it
+    stops the common case — and defense in depth also matters here since not
+    every deployment sits behind a proxy that enforces this.
+    """
+    content_length = request.headers.get("content-length")
+    if content_length is None:
+        return False
+    try:
+        return int(content_length) > max_bytes
+    except ValueError:
+        return False
+
 
 def _run_recommendation_check(user_id: int):
     """
@@ -75,6 +110,12 @@ async def receive_events(
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
+    if _content_length_exceeds(request, MAX_REQUEST_BODY_BYTES):
+        return JSONResponse(
+            {"error": f"payload too large — max {MAX_REQUEST_BODY_BYTES} bytes"},
+            status_code=413,
+        )
+
     try:
         body = await request.json()
     except (json.JSONDecodeError, TypeError, ValueError):
@@ -95,15 +136,30 @@ async def receive_events(
         if event_type not in VALID_EVENT_TYPES:
             continue
 
+        # product_id must be a real int or absent — never trust the client's type
+        # (routers/monitoring.py's digest-readiness math and every FK-based join
+        # downstream assumes this column is either a valid integer or NULL).
+        raw_product_id = e.get("product_id")
+        if raw_product_id is not None and not isinstance(raw_product_id, int):
+            continue
+        product_id = raw_product_id
+
         metadata = e.get("metadata") if isinstance(e.get("metadata"), dict) else {}
         if e.get("client_timestamp"):
             metadata["client_timestamp"] = e["client_timestamp"]
 
+        metadata_json = json.dumps(metadata) if metadata else None
+        if metadata_json and len(metadata_json) > MAX_METADATA_JSON_CHARS:
+            # Don't drop the whole event over an oversized metadata blob — just
+            # cap what gets stored, the same non-fatal-degradation pattern used
+            # everywhere else in this app (Mesh failures, SMTP/Telegram misses).
+            metadata_json = metadata_json[:MAX_METADATA_JSON_CHARS]
+
         to_insert.append(Event(
             user_id=user.id,
             event_type=event_type,
-            product_id=e.get("product_id"),
-            event_metadata=json.dumps(metadata) if metadata else None,
+            product_id=product_id,
+            event_metadata=metadata_json,
             agent_eligible=True,
         ))
 
