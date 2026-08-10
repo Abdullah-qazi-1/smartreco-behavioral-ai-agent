@@ -21,7 +21,7 @@ Every product create/update/delete writes to **SQLite** (source of truth) and **
 
 ## ✅ Features Implemented
 
-**Core Platform** — email/password auth (bcrypt), session-based login, dual-mode users (student/instructor), full catalog CRUD, dual-write sync.
+**Core Platform** — email/password auth (bcrypt), session-based login, dual-mode users (student/instructor), full catalog CRUD, dual-write sync, rate limiting on `/login` (10 req/60s) and `/signup` (5 req/60s) via `services/rate_limit.py`.
 
 **Behavioral Tracking** — batched + debounced client tracker, `sendBeacon` flush on tab close, bot-noise filter (<0.3s duplicate drop), scroll-depth milestones (captured client-side, persisted server-side, and factored into category scoring via `services/scoring_weights.EVENT_BASE_WEIGHTS["scroll_depth"]`), opt-in/out tracking preference.
 
@@ -123,7 +123,9 @@ SmartReco calculates per-category interest scores using a composite scoring form
 ## 🧪 Testing
 
 ```bash
-python tests/smoke_test.py              # full backend suite, no live Mesh key needed — 25 assertions
+python tests/smoke_test.py              # full backend suite, no live Mesh key needed — 33 assertions across 11 sections,
+                                         # including concurrent dual-write race conditions (Section 10) and
+                                         # a Mesh key invalidated mid-request (Section 11)
 python scripts/eval_recommendations.py  # recommendation quality: single-category, mixed-signal, cold-start profiles
 ```
 
@@ -140,6 +142,7 @@ To test the daily digest without waiting for the scheduled hour: `POST /api/admi
 | `GET` | `/api/recommendations` | Authenticated | Retrieve current user's active recommendation |
 | `POST` | `/api/recommendations/refresh` | Authenticated | Force-trigger recommendation pipeline |
 | `POST` | `/api/admin/run-digest` | **Admin only** | Manually execute proactive daily digest job |
+| `GET` | `/api/admin/digest-readiness` | **Admin only** | Pre-flight check: channels configured, active-users-today count — sends nothing |
 | `GET` / `POST` | `/api/admin/analytics`, `/api/admin/reconcile-vectors` | **Admin only** | Analytics summary / manual vector self-heal |
 | `GET` | `/metrics` | **Admin only** | Operational metrics (LLM stats, trigger fire rates) |
 | `GET` | `/health` | Public | System health check (SQLite, ChromaDB, LLM provider) |
@@ -159,6 +162,42 @@ A security review found and fixed the following. All 25 `smoke_test.py` assertio
 | **Session cookie never expired, no `https_only` control.** | Added `SESSION_MAX_AGE_SECONDS` (default 7 days) and `SESSION_COOKIE_SECURE` env var (set `true` once deployed behind HTTPS). |
 
 New optional env vars (defaults keep local dev unchanged): `SESSION_COOKIE_SECURE`, `SESSION_MAX_AGE_SECONDS`, `TRUST_PROXY_HEADERS` — see `.env.example`.
+
+### Concurrency — Two Admins Editing the Same Product/Course
+
+There is no optimistic-locking (`version`) column on `Product` — this is a conscious tradeoff for a low-contention admin/instructor catalog (course edits are infrequent and rarely truly simultaneous), not an oversight. What actually happens if two admins DO submit an edit to the exact same course at the same moment, verified live via a real dedicated test (`tests/smoke_test.py` Section 10, two OS threads with two independent `SessionLocal()` sessions hitting `update_product()` on the same row concurrently):
+
+- **SQL side**: SQLite (WAL mode, `check_same_thread=False`) serializes the two `COMMIT`s at the engine level — one fully succeeds, then the other fully succeeds, in whichever order the two requests happen to reach the database. The result is **clean last-write-wins**: the final row is *entirely* one admin's submitted values, never a corrupted mix/interleave of both. Neither write is silently lost — both commits succeed, the second simply supersedes the first's values for any overlapping fields.
+- **Vector (Chroma) side**: `database/chroma_client.py` previously had no synchronization around the shared `_collection` object — concurrent writes could intermittently fail even when both embeddings succeeded (a real race, caught by writing this exact test). Fixed with a `threading.Lock()` around the actual `_collection.upsert()`/`.delete()` calls (embedding generation itself — the slow network part — stays outside the lock, so this doesn't serialize the expensive part, only the fast local write).
+- **No corruption, no crash, no exception** in either case — verified by running the concurrency test 15 consecutive times with zero flakiness after the fix.
+- **Known limitation**: because there's no optimistic lock, the "losing" admin gets no warning that their edit was overwritten seconds later by the other admin — they'd only notice on a page refresh. Adding a `version` column + a `409 Conflict` response on a stale write is the natural next step if this app moved from a low-contention admin panel to a higher-contention multi-editor workflow.
+
+### Input Validation Limits
+
+Explicit, enforced caps — not just "reasonable defaults left implicit":
+
+| Limit | Value | Enforced in | Behavior when exceeded |
+|---|---|---|---|
+| Max events per batch | 50 | `routers/events.py` → `MAX_EVENTS_PER_BATCH` | Excess events in the array are silently truncated, not rejected (a client sending 200 events still gets its first 50 accepted) |
+| Max `/api/events` request body size | 256 KB | `routers/events.py` → `MAX_REQUEST_BODY_BYTES` (checked via `Content-Length` **before** the body is parsed) | `413 Payload Too Large` |
+| Max per-event metadata size (after JSON serialization) | 2,000 chars | `routers/events.py` → `MAX_METADATA_JSON_CHARS` | Metadata is truncated, not the whole event dropped — same non-fatal-degradation pattern used for Mesh/SMTP failures elsewhere in this app |
+| `product_id` type on ingest | must be a real `int` or absent | `routers/events.py` | Event is dropped (not silently coerced/stored) if the client sends a non-integer `product_id` — avoids polluting the FK column with garbage that downstream joins (e.g. `digest-readiness`'s active-user math) assume is always a clean int or `NULL` |
+| Max search query length | 200 chars | `routers/products.py` → `MAX_SEARCH_QUERY_LENGTH` | Query is truncated before being sent to Mesh for embedding or to the SQL keyword-fallback path — caps wasted embedding cost/DB scan time on garbage-length input |
+| Login rate limit | 10 req / 60s per IP | `services/rate_limit.py` | `429 Too Many Requests` |
+| Signup rate limit | 5 req / 60s per IP | `services/rate_limit.py` | `429 Too Many Requests` |
+
+All six live-verified with real HTTP requests against a running server (oversized payload → `413`, malformed `product_id` → event dropped cleanly, 500-char query → truncated with `200 OK`, no crash in any case).
+
+### Startup Environment Validation
+
+`main.py` runs `_validate_optional_env_at_startup()` at boot (logged via `smartreco.startup`):
+
+- `SESSION_SECRET` missing → **fatal**, refuses to start (unchanged from before — a session-signing key is not optional).
+- `MESH_API_KEY` missing → **non-fatal** `WARNING` log only. This is intentional, not a gap: the whole point of the "Resilience — What Happens Without Mesh" design below is that the app must still boot and serve non-AI paths without a key configured.
+- `MESH_API_KEY` present but **doesn't start with `rsk_`** (the documented Mesh key format) → `WARNING` log flagging it as likely a copy-paste mistake (wrong var, a raw OpenAI key, unstripped whitespace) — this is deliberately a warning, not a boot failure, since Mesh could plausibly change key formats and a startup check shouldn't hard-block on a shape assumption; but it turns a confusing "every AI request 401s and I don't know why" debugging session into an obvious line in the startup log.
+- `LANGCHAIN_TRACING_V2=true` set without a `LANGCHAIN_API_KEY` → `WARNING` log — tracing would otherwise silently no-op with no indication why nothing shows up in LangSmith.
+
+Live-verified: booting with `MESH_API_KEY=bad-format-key-not-rsk` prints the expected warning and the app still serves requests normally.
 
 ---
 
