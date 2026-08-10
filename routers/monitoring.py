@@ -19,6 +19,7 @@ from database import chroma_client
 from services.llm_client import get_client
 from services.metrics import get_llm_metrics, get_trigger_metrics
 from routers.auth import get_current_user
+from database.models import User
 
 logger = logging.getLogger("smartreco.monitoring")
 router = APIRouter()
@@ -146,6 +147,66 @@ def trigger_manual_digest(request: Request, db: Session = Depends(get_db)):
     from services.scheduler import run_daily_digest_job
     summary = run_daily_digest_job()
     return {"status": "completed", "summary": summary}
+
+
+@router.get("/api/admin/digest-readiness")
+def digest_readiness(request: Request, db: Session = Depends(get_db)):
+    """
+    Read-only pre-flight check for the daily digest — reports whether delivery
+    channels are configured and how many users/recommendations are currently
+    in scope, WITHOUT sending anything. Meant to be checked before hitting
+    POST /api/admin/run-digest (e.g. right before recording a demo), so a
+    misconfigured SMTP/Telegram env var is caught ahead of time instead of
+    surfacing only inside the run-digest summary's error list.
+    Requires real admin role only.
+    """
+    user = get_current_user(request, db)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    if user.role != "admin":
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+
+    from services.scheduler import get_users_active_today
+
+    smtp_configured = bool(
+        os.getenv("SMTP_HOST") and os.getenv("SMTP_USER") and os.getenv("SMTP_PASS")
+    )
+    telegram_configured = bool(
+        os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID")
+    )
+
+    active_users = get_users_active_today(db)
+    active_user_ids = [u.id for u in active_users]
+
+    users_with_recommendation = 0
+    if active_user_ids:
+        users_with_recommendation = (
+            db.query(Recommendation.user_id)
+            .filter(
+                Recommendation.user_id.in_(active_user_ids),
+                Recommendation.is_latest == True,  # noqa: E712
+            )
+            .distinct()
+            .count()
+        )
+    users_needing_generation = len(active_user_ids) - users_with_recommendation
+
+    logger.info(
+        "Digest readiness checked by admin user_id=%s: smtp=%s telegram=%s "
+        "active_users=%d with_rec=%d needing_generation=%d",
+        user.id, smtp_configured, telegram_configured,
+        len(active_user_ids), users_with_recommendation, users_needing_generation,
+    )
+
+    return {
+        "channels": {
+            "smtp_configured": smtp_configured,
+            "telegram_configured": telegram_configured,
+        },
+        "active_users_today": len(active_user_ids),
+        "users_with_saved_recommendation": users_with_recommendation,
+        "users_needing_recommendation_generation": users_needing_generation,
+    }
 
 
 @router.post("/api/admin/reconcile-vectors")
