@@ -55,22 +55,12 @@ build/
 
 # ==========================================
 # Database
-# FIX: smartreco.db was previously committed on purpose ("cost control"),
-# but it contains real bcrypt password hashes for real-looking accounts
-# and leftover test-run rows. Shipping real credential hashes in a PUBLIC
-# repo is a security issue, so the SQL database is now ignored. Use
-# `python tools/create_tables.py` + `python seed_data.py` (or
-# `python create_admin.py`) to bootstrap a fresh local DB instead.
-#
-# NOTE: chroma_db/ (the vector store / embeddings) is INTENTIONALLY still
-# committed and NOT ignored — it holds only product embeddings + catalog
-# metadata (no user credentials or PII), and re-generating it means paying
-# for Mesh embedding calls again. Do NOT add chroma_db/ here.
+# smartreco.db and chroma_db/ are committed on purpose (pre-seeded catalog +
+# embeddings, credentials already stripped via strip_user_credentials.py).
+# Only stray WAL/SHM journal files are ignored, never the main .db files.
 # ==========================================
-*.db
 *.db-wal
 *.db-shm
-*.sqlite3
 
 # Dev/debug scripts — not part of the app
 check_events.py
@@ -78,3 +68,16 @@ test_api.py
 test_env.py
 
 requirements.txt.bak
+
+# Not for the public repo
+PROJECT.md
+CLAUDE.md
+
+# Database
+smartreco.db
+smartreco.db-wal
+smartreco.db-shm
+
+# NOTE: chroma_db/chroma.sqlite3 is intentionally NOT ignored —
+# it holds product embeddings/catalog metadata only (no PII),
+# and must stay committed to avoid re-generating embeddings.
