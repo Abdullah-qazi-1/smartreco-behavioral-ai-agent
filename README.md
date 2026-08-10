@@ -68,8 +68,8 @@ smartreco/
 ## ⚙️ Setup & Running Locally
 
 ```bash
-git clone https://github.com/Abdullah-qazi-1/smartreco-agentic-recommender.git
-cd smartreco-agentic-recommender
+git clone git clone https://github.com/Abdullah-qazi-1/smartreco-behavioral-ai-agent.git
+cd smartreco-behavioral-ai-agent
 python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
